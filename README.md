@@ -1,5 +1,7 @@
 # 🌐 O-RAN Near-RT RIC Platform
 
+> In the O-RAN RIC Platform, we hope to design multiple xApps with different functions for network slicing, and introduce the federal learning framework to realize the vision of intelligent RRM while achieving slices (UEs) privacy.
+
 [![Go Report Card](https://goreportcard.com/badge/github.com/kubernetes/dashboard)](https://goreportcard.com/report/github.com/kubernetes/dashboard)
 [![Coverage Status](https://codecov.io/github/kubernetes/dashboard/coverage.svg?branch=master)](https://codecov.io/github/kubernetes/dashboard?branch=master)
 [![GitHub release](https://img.shields.io/github/release/kubernetes/dashboard.svg)](https://github.com/kubernetes/dashboard/releases/latest)
