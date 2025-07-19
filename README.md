@@ -320,19 +320,19 @@ This platform implements **O-RAN Alliance Release 3.0** architectural specificat
 Comprehensive documentation is available in the [docs](docs/README.md) directory:
 
 ### 📚 User Documentation
-- [**Common Guide**](docs/common/README.md) - Entry-level overview and concepts
+- [**Common Guide**](dashboard-master/dashboard-master/docs/common/README.md) - Entry-level overview and concepts
 - [**User Guide**](docs/user/README.md) - Complete user manual including:
-  - [Installation Guide](docs/user/installation.md) - Step-by-step setup instructions
-  - [Accessing Dashboard](docs/user/accessing-dashboard/README.md) - Authentication and access methods
-  - [RBAC Configuration](docs/user/access-control/README.md) - Security and permissions
-  - [Integration Guide](docs/user/integrations.md) - Third-party integrations
+  - [Installation Guide](dashboard-master/dashboard-master/docs/user/installation.md) - Step-by-step setup instructions
+  - [Accessing Dashboard](dashboard-master/dashboard-master/docs/user/accessing-dashboard/README.md) - Authentication and access methods
+  - [RBAC Configuration](dashboard-master/dashboard-master/docs/user/access-control/README.md) - Security and permissions
+  - [Integration Guide](dashboard-master/dashboard-master/docs/user/integrations.md) - Third-party integrations
 
 ### 🛠️ Developer Documentation
-- [**Developer Guide**](docs/developer/README.md) - Development workflows including:
-  - [Getting Started](docs/developer/getting-started.md) - Development environment setup
-  - [Dependency Management](docs/developer/dependency-management.md) - Package and library management
+- [**Developer Guide**](dashboard-master/dashboard-master/docs/developer/README.md) - Development workflows including:
+  - [Getting Started](dashboard-master/dashboard-master/docs/developer/getting-started.md) - Development environment setup
+  - [Dependency Management](dashboard-master/dashboard-master/docs/developer/dependency-management.md) - Package and library management
   - [API Reference](docs/developer/api-reference.md) - REST API documentation
-  - [Architecture Design](docs/developer/architecture.md) - System architecture details
+  - [Architecture Design](dashboard-master/dashboard-master/docs/developer/architecture.md) - System architecture details
 
 ### 🔧 Operations Documentation
 - [**Deployment Guide**](docs/operations/deployment.md) - Production deployment
