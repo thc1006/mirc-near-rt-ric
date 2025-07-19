@@ -1,164 +1,344 @@
-# Local Development Setup for O-RAN Near-RT RIC
+# Development Setup Guide
 
-This guide provides instructions for setting up a local development environment for the O-RAN Near-RT RIC project. This includes spinning up a local Kubernetes cluster, building the Go backend, and serving the Angular dashboards.
+This guide explains how to set up a local development environment for the Near-RT RIC platform using KIND (Kubernetes in Docker), build the Go backend, and serve the Angular dashboards.
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/)
-- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
-- [Go](https://golang.org/doc/install) (version 1.17+)
-- [Node.js](https://nodejs.org/en/download/) (version 16.14.2+)
-- [Angular CLI](https://angular.io/cli) (version 13.3.3)
-- [KIND](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) (Kubernetes in Docker)
+Ensure you have the following tools installed:
 
-## 1. Local Kubernetes Cluster with KIND
+- **Docker**: For running KIND clusters
+- **kubectl**: Kubernetes command-line tool  
+- **KIND**: Kubernetes in Docker (v0.11.0 or later)
+- **Go**: Version 1.17 or later
+- **Node.js**: Version 16.14.2 or later
+- **npm**: Comes with Node.js
+- **Angular CLI**: Version 13.3.3 (`npm install -g @angular/cli@13.3.3`)
 
-KIND allows you to run a local Kubernetes cluster using Docker containers as nodes.
+## 1. Setting Up KIND Cluster
 
-### Create a Cluster
-
-1.  **Create a cluster configuration file `kind-cluster.yaml`:**
-
-    ```yaml
-    kind: Cluster
-    apiVersion: kind.x-k8s.io/v1alpha4
-    nodes:
-    - role: control-plane
-    - role: worker
-    - role: worker
-    ```
-
-2.  **Create the cluster:**
-
-    ```bash
-    kind create cluster --config kind-cluster.yaml
-    ```
-
-3.  **Verify the cluster is running:**
-
-    ```bash
-    kubectl cluster-info --context kind-kind
-    ```
-
-### Accessing the Cluster
-
-Your `kubeconfig` file will be automatically updated with the new cluster context. You can switch to the KIND context with:
+### Create KIND Cluster
 
 ```bash
-kubectl config use-context kind-kind
+# Create a KIND cluster with a specific name
+kind create cluster --name near-rt-ric
+
+# Verify the cluster is running
+kubectl cluster-info --context kind-near-rt-ric
+
+# Set the context
+kubectl config use-context kind-near-rt-ric
 ```
 
-## 2. Build the Go Backend
+### Configure Local Registry (Optional)
 
-The Go backend provides the API server for the main dashboard.
+For faster image pulls during development:
 
-1.  **Navigate to the backend directory:**
+```bash
+# Create local registry
+docker run -d --restart=always -p 5000:5000 --name registry registry:2
 
-    ```bash
-    cd dashboard-master/dashboard-master
-    ```
+# Configure KIND to use local registry
+cat <<EOF | kind create cluster --name near-rt-ric --config=-
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
+    endpoint = ["http://registry:5000"]
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 80
+    protocol: TCP
+  - containerPort: 443
+    hostPort: 443
+    protocol: TCP
+EOF
 
-2.  **Build the backend:**
+# Connect registry to KIND network
+docker network connect kind registry
+```
 
-    ```bash
-    make build
-    ```
+## 2. Backend Setup (dashboard-master/dashboard-master)
 
-    This will compile the Go code and create the necessary binaries.
+Navigate to the main dashboard directory:
 
-3.  **Deploy to your KIND cluster:**
+```bash
+cd dashboard-master/dashboard-master
+```
 
-    ```bash
-    make deploy
-    ```
+### Build and Start Backend
 
-    This will apply the Kubernetes manifests to your local cluster.
+```bash
+# Build the Go backend
+make build
 
-## 3. Serve the Angular Dashboards
+# Start development server with backend
+npm start
 
-There are two Angular dashboards: the main dashboard and the xApp dashboard.
+# Or start with HTTPS
+npm run start:https
+```
 
-### Main Dashboard
+### Backend Development Workflow
 
-1.  **Navigate to the frontend directory:**
+For active Go development with live reload:
 
-    ```bash
-    cd dashboard-master/dashboard-master/src/app/frontend
-    ```
+```bash
+# Watch backend for changes (if available)
+make watch-backend
 
-2.  **Install dependencies:**
+# Run backend tests
+make test
 
-    ```bash
-    npm install
-    ```
+# Code quality checks
+make check
+npm run fix
+```
 
-3.  **Serve the dashboard:**
+### Environment Configuration
 
-    ```bash
-    npm start
-    ```
+The backend requires proper Kubernetes RBAC configuration. Create a service account:
 
-    The dashboard will be available at `http://localhost:4200`.
+```bash
+# Apply RBAC configuration
+kubectl apply -f aio/deploy/recommended/05_dashboard-rbac.yaml
 
-### xApp Dashboard
+# Or create minimal RBAC for development
+kubectl create serviceaccount dashboard-admin -n default
+kubectl create clusterrolebinding dashboard-admin \
+  --clusterrole=cluster-admin \
+  --serviceaccount=default:dashboard-admin
+```
 
-1.  **Navigate to the xApp dashboard directory:**
+## 3. Frontend Setup
 
-    ```bash
-    cd xAPP_dashboard-master
-    ```
+### Main Dashboard Frontend
 
-2.  **Install dependencies:**
+The main dashboard frontend is served alongside the backend:
 
-    ```bash
-    npm install
-    ```
+```bash
+cd dashboard-master/dashboard-master
 
-3.  **Serve the dashboard:**
+# Install dependencies (if not already done)
+npm install
 
-    ```bash
-    npm start
-    ```
+# Start development server (includes both frontend and backend)
+npm start
 
-    The xApp dashboard will be available at `http://localhost:4201` (or another port if 4200 is in use).
+# The application will be available at:
+# HTTP: http://localhost:8080
+# HTTPS: https://localhost:8443
+```
 
-## 4. Troubleshooting
+### xApp Dashboard Frontend
+
+Set up the separate xApp dashboard:
+
+```bash
+cd xAPP_dashboard-master
+
+# Install dependencies
+npm install
+
+# Start development server
+npm start
+
+# The xApp dashboard will be available at:
+# http://localhost:4200
+```
+
+## 4. Testing
+
+### Backend Tests
+
+```bash
+cd dashboard-master/dashboard-master
+make test
+```
+
+### Frontend Tests
+
+```bash
+# Main dashboard tests
+cd dashboard-master/dashboard-master
+npm test
+
+# xApp dashboard tests
+cd xAPP_dashboard-master
+npm test
+```
+
+### End-to-End Tests
+
+```bash
+# Run Cypress tests (main dashboard)
+cd dashboard-master/dashboard-master
+npm run e2e
+
+# Run Cypress tests (xApp dashboard)
+cd xAPP_dashboard-master
+npm run e2e
+```
+
+## 5. Deployment to KIND
+
+Deploy the complete platform to your KIND cluster:
+
+```bash
+cd dashboard-master/dashboard-master
+
+# Build and deploy to KIND
+make deploy
+
+# Check deployment status
+kubectl get pods -n kubernetes-dashboard
+kubectl get services -n kubernetes-dashboard
+```
+
+## Troubleshooting
 
 ### RBAC Errors
 
-Role-Based Access Control (RBAC) errors are common when interacting with the Kubernetes API.
+If you encounter permission errors like "forbidden: User cannot list resources":
 
-**Symptom:** You receive errors like `User "system:serviceaccount:default:default" cannot list resource "pods" in API group "" in the namespace "default"`.
+1. **Check Service Account**:
+   ```bash
+   kubectl get serviceaccount dashboard-admin -n default
+   ```
 
-**Solution:**
+2. **Verify ClusterRoleBinding**:
+   ```bash
+   kubectl get clusterrolebinding dashboard-admin
+   kubectl describe clusterrolebinding dashboard-admin
+   ```
 
-1.  **Identify the ServiceAccount:** Check the `serviceAccountName` in the `deployment.yaml` or `pod.yaml` for the component that is failing.
+3. **Create Admin Access** (for development only):
+   ```bash
+   kubectl create clusterrolebinding dashboard-admin \
+     --clusterrole=cluster-admin \
+     --serviceaccount=default:dashboard-admin
+   ```
 
-2.  **Check ClusterRole and ClusterRoleBinding:**
-    - A `ClusterRole` defines permissions.
-    - A `ClusterRoleBinding` grants those permissions to a user or a `ServiceAccount`.
+4. **Get Service Account Token**:
+   ```bash
+   # For Kubernetes 1.24+
+   kubectl create token dashboard-admin
+   
+   # For older versions
+   kubectl get secret $(kubectl get serviceaccount dashboard-admin -o jsonpath='{.secrets[0].name}') -o jsonpath='{.data.token}' | base64 --decode
+   ```
 
-3.  **Create or Update a ClusterRoleBinding:**
+### Image Pull Issues
 
-    Ensure a `ClusterRoleBinding` exists that binds the `ServiceAccount` to a `ClusterRole` with the necessary permissions. For example, to grant `cluster-admin` rights (use with caution in production):
+If you encounter image pull errors in KIND:
 
-    ```yaml
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: ClusterRoleBinding
-    metadata:
-      name: my-app-cluster-admin
-    subjects:
-    - kind: ServiceAccount
-      name: <your-service-account-name>
-      namespace: <your-namespace>
-    roleRef:
-      kind: ClusterRole
-      name: cluster-admin
-      apiGroup: rbac.authorization.k8s.io
-    ```
+1. **Load Images into KIND**:
+   ```bash
+   # Build local image
+   docker build -t dashboard:local .
+   
+   # Load into KIND
+   kind load docker-image dashboard:local --name near-rt-ric
+   ```
 
-    Apply this with `kubectl apply -f <filename>.yaml`.
+2. **Configure ImagePullPolicy**:
+   Edit deployment manifests to use `imagePullPolicy: Never` for local images.
 
-### Image Pull Errors
+### Build Failures
 
-If you are using a local Docker registry with KIND, you may need to configure KIND to trust it. Refer to the [KIND documentation on local registries](https://kind.sigs.k8s.io/docs/user/local-registry/).
+1. **Node.js Version Issues**:
+   ```bash
+   # Check Node.js version
+   node --version  # Should be >= 16.14.2
+   
+   # Use nvm to manage versions
+   nvm install 16.14.2
+   nvm use 16.14.2
+   ```
+
+2. **Go Version Issues**:
+   ```bash
+   # Check Go version
+   go version  # Should be >= 1.17
+   ```
+
+3. **Clear Node Modules**:
+   ```bash
+   rm -rf node_modules package-lock.json
+   npm install
+   ```
+
+### Port Conflicts
+
+If ports 8080 or 4200 are in use:
+
+1. **Main Dashboard**:
+   ```bash
+   npm start -- --port 8081
+   ```
+
+2. **xApp Dashboard**:
+   ```bash
+   ng serve --port 4201
+   ```
+
+### KIND Cluster Issues
+
+1. **Reset KIND Cluster**:
+   ```bash
+   kind delete cluster --name near-rt-ric
+   kind create cluster --name near-rt-ric
+   ```
+
+2. **Check Docker Resources**:
+   Ensure Docker has sufficient memory (at least 4GB) and CPU resources.
+
+### Network Issues
+
+If you cannot access the dashboards:
+
+1. **Check Port Forwarding**:
+   ```bash
+   # Forward dashboard service
+   kubectl port-forward -n kubernetes-dashboard service/kubernetes-dashboard 8443:443
+   ```
+
+2. **Verify Service Status**:
+   ```bash
+   kubectl get services -n kubernetes-dashboard
+   kubectl describe service kubernetes-dashboard -n kubernetes-dashboard
+   ```
+
+## Quick Start Commands
+
+Once everything is set up, use these commands for daily development:
+
+```bash
+# Start KIND cluster
+kind create cluster --name near-rt-ric
+
+# Start main dashboard (backend + frontend)
+cd dashboard-master/dashboard-master && npm start
+
+# Start xApp dashboard (in separate terminal)
+cd xAPP_dashboard-master && npm start
+
+# Run tests
+cd dashboard-master/dashboard-master && make test
+cd xAPP_dashboard-master && npm test
+```
+
+## Useful Links
+
+- [KIND Documentation](https://kind.sigs.k8s.io/)
+- [Kubernetes Dashboard Documentation](https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/)
+- [Angular CLI Documentation](https://angular.io/cli)
+- [O-RAN Alliance Specifications](https://www.o-ran.org/specifications)

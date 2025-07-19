@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"text/template"
 	"time"
 )
@@ -38,6 +39,17 @@ const (
 	ConfigTemplate = "{{.}}"
 )
 
+var (
+	// configTemplate is pre-compiled template for better performance
+	configTemplate *template.Template
+	configOnce     sync.Once
+	// configCache caches the JSON string with TTL
+	configCache     string
+	configCacheTime time.Time
+	configCacheMutex sync.RWMutex
+	configCacheTTL   = 1 * time.Second // Cache for 1 second to reduce CPU load
+)
+
 // ServeHTTP serves HTTP endpoint with application configuration.
 func (fn AppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if _, err := fn(w, r); err != nil {
@@ -46,23 +58,64 @@ func (fn AppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getAppConfigJSON() string {
-	log.Println("Getting application global configuration")
+// initConfigTemplate initializes the template once
+func initConfigTemplate() {
+	configOnce.Do(func() {
+		var err error
+		configTemplate, err = template.New(ConfigTemplateName).Parse(ConfigTemplate)
+		if err != nil {
+			log.Printf("Error parsing config template: %v", err)
+		}
+	})
+}
 
+func getAppConfigJSON() string {
+	// Check cache first
+	configCacheMutex.RLock()
+	if configCache != "" && time.Since(configCacheTime) < configCacheTTL {
+		configCacheMutex.RUnlock()
+		return configCache
+	}
+	configCacheMutex.RUnlock()
+
+	// Cache miss or expired, generate new config
+	configCacheMutex.Lock()
+	defer configCacheMutex.Unlock()
+
+	// Double-check after acquiring write lock
+	if configCache != "" && time.Since(configCacheTime) < configCacheTTL {
+		return configCache
+	}
+
+	// Log only when generating new config to reduce log spam
 	config := &AppConfig{
 		ServerTime: time.Now().UTC().UnixNano() / 1e6,
 	}
 
-	jsonConfig, _ := json.Marshal(config)
-	log.Printf("Application configuration %s", jsonConfig)
-	return string(jsonConfig)
+	jsonConfig, err := json.Marshal(config)
+	if err != nil {
+		log.Printf("Error marshaling config: %v", err)
+		return "{}"
+	}
+
+	// Update cache
+	configCache = string(jsonConfig)
+	configCacheTime = time.Now()
+
+	return configCache
 }
 
 func ConfigHandler(w http.ResponseWriter, r *http.Request) (int, error) {
-	configTemplate, err := template.New(ConfigTemplateName).Parse(ConfigTemplate)
+	// Initialize template once
+	initConfigTemplate()
+	
 	w.Header().Set("Content-Type", "application/json")
-	if err != nil {
-		return http.StatusInternalServerError, err
+	
+	if configTemplate == nil {
+		return http.StatusInternalServerError, nil
 	}
-	return http.StatusOK, configTemplate.Execute(w, getAppConfigJSON())
+	
+	// Use cached config JSON
+	configJSON := getAppConfigJSON()
+	return http.StatusOK, configTemplate.Execute(w, configJSON)
 }

@@ -1,35 +1,44 @@
-# Kubernetes Dashboard
+# O-RAN Near-RT RIC Platform
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/kubernetes/dashboard)](https://goreportcard.com/report/github.com/kubernetes/dashboard)
 [![Coverage Status](https://codecov.io/github/kubernetes/dashboard/coverage.svg?branch=master)](https://codecov.io/github/kubernetes/dashboard?branch=master)
 [![GitHub release](https://img.shields.io/github/release/kubernetes/dashboard.svg)](https://github.com/kubernetes/dashboard/releases/latest)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/kubernetes/dashboard/blob/master/LICENSE)
 
-Kubernetes Dashboard is a general purpose, web-based UI for Kubernetes clusters. It allows users to manage applications running in the cluster and troubleshoot them, as well as manage the cluster itself.
+A comprehensive O-RAN (Open Radio Access Network) Near Real-Time RAN Intelligent Controller (Near-RT RIC) platform featuring dual Angular dashboards for xApp deployment, lifecycle management, and Kubernetes cluster oversight with sub-second latency requirements.
 
-## O-RAN Near-RT RIC Overview
+## Architecture Overview
 
-This project provides a comprehensive O-RAN (Open Radio Access Network) Near Real-Time RAN Intelligent Controller (Near-RT RIC) platform for xApp deployment and management.
+The Near-RT RIC platform implements O-RAN Alliance specifications with 10ms-1s latency requirements, providing standards-compliant E2, A1, and O1 interface support for multi-vendor telecommunications interoperability.
 
-### Architecture Diagram
+### Component Architecture
 
 ```
-+--------------------------------------------------+
-|               Near-RT RIC Platform               |
-|                                                  |
-|  +------------------+      +-------------------+ |
-|  |     Dashboard    |      |   xAPP Dashboard  | |
-|  | (Management UI)  |<---->|  (xApp Lifecycle) | |
-|  +------------------+      +-------------------+ |
-|         ^                                        |
-|         |                                        |
-|         v                                        |
-|  +------------------+                            |
-|  |   E2 Interface   |                            |
-|  |  (RAN Control)   |                            |
-|  +------------------+                            |
-|                                                  |
-+--------------------------------------------------+
+┌─────────────────────────────────────────────────────────────────────┐
+│                     O-RAN Near-RT RIC Platform                     │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────────────────┐              ┌─────────────────────────────┐  │
+│  │   Main Dashboard │◄────────────►│      xApp Dashboard         │  │
+│  │                  │              │                             │  │
+│  │ • Kubernetes UI  │              │ • xApp Lifecycle Mgmt      │  │
+│  │ • Cluster Mgmt   │              │ • Container Orchestration  │  │
+│  │ • RBAC Control   │              │ • Image History            │  │
+│  │ • Go Backend     │              │ • Angular Frontend         │  │
+│  └──────────────────┘              └─────────────────────────────┘  │
+│           │                                        │                │
+│           └────────────────┬───────────────────────┘                │
+│                            │                                        │
+│  ┌─────────────────────────▼─────────────────────────────────────┐  │
+│  │                    E2 Interface                              │  │
+│  │                                                              │  │
+│  │ • RAN Node Control & Configuration                          │  │
+│  │ • Real-time Telemetry (10ms-1s latency)                    │  │
+│  │ • O-RAN Alliance Compliant Messaging                       │  │
+│  │ • Multi-vendor Interoperability                            │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ![Dashboard UI workloads page](https://github.com/user-attachments/assets/47a058da-63a8-4140-ae68-592e615c88df)
@@ -37,26 +46,70 @@ This project provides a comprehensive O-RAN (Open Radio Access Network) Near Rea
 
 ## Quick Start
 
-This section provides the minimum requirements to get the Near-RT RIC platform running.
+### Prerequisites
+
+Ensure the following versions are installed:
 
 *   **Go:** `1.17+`
-*   **Node.js:** `16.14.2+`
+*   **Node.js:** `16.14.2+` 
+*   **Angular CLI:** `13.3.3+`
 *   **Kubernetes:** `1.21+`
+*   **Docker:** Latest stable
+*   **kubectl:** Compatible with your cluster
+*   **KIND:** Latest (for local development)
+
+### Local Development Setup
+
+```bash
+# 1. Clone the repository
+git clone <repository-url>
+cd near-rt-ric
+
+# 2. Setup local Kubernetes cluster with KIND
+kind create cluster --name near-rt-ric
+
+# 3. Build and start main dashboard
+cd dashboard-master/dashboard-master
+make build
+npm start
+
+# 4. In another terminal, start xApp dashboard  
+cd xAPP_dashboard-master
+npm install
+npm start
+```
+
+The main dashboard will be available at `http://localhost:8080` and the xApp dashboard at `http://localhost:4200`.
 
 
 ## Getting Started
 
 **IMPORTANT:** Read the [Access Control](docs/user/access-control/README.md) guide before performing any further steps. The default Dashboard deployment contains a minimal set of RBAC privileges needed to run.
 
-### Install
+### Deployment
 
-To deploy Dashboard, execute following command:
-
-```shell
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.5.1/aio/deploy/recommended.yaml
+#### Main Dashboard
+```bash
+cd dashboard-master/dashboard-master
+make deploy
 ```
 
-Alternatively, you can install Dashboard using Helm as described at [`https://artifacthub.io/packages/helm/k8s-dashboard/kubernetes-dashboard`](https://artifacthub.io/packages/helm/k8s-dashboard/kubernetes-dashboard).
+#### xApp Dashboard
+```bash
+cd xAPP_dashboard-master  
+npm run build
+kubectl apply -f k8s/
+```
+
+#### Full Platform Deployment
+```bash
+# Deploy both dashboards
+make deploy-all
+
+# Or using individual Makefiles
+cd dashboard-master/dashboard-master && make deploy
+cd ../../xAPP_dashboard-master && kubectl apply -f k8s/
+```
 
 ### Access
 
@@ -77,12 +130,22 @@ To find out how to create sample user and log in follow [Creating sample user](d
 * Kubeconfig Authentication method does not support external identity providers or certificate-based authentication.
 * [Metrics-Server](https://github.com/kubernetes-sigs/metrics-server) has to be running in the cluster for the metrics and graphs to be available. Read more about it in [Integrations](docs/user/integrations.md) guide.
 
-## O-RAN Specifications
+## O-RAN Alliance Specifications
 
-For more information on the O-RAN Alliance and its specifications, please refer to the following resources:
+This platform implements key O-RAN Alliance architectural specifications:
 
+### Architecture References
 *   [O-RAN Alliance Official Website](https://www.o-ran.org/)
-*   [O-RAN Architecture Specifications](https://www.o-ran.org/specifications)
+*   [O-RAN.WG1.O-RAN-Architecture-Description](https://www.o-ran.org/specifications) - Overall architecture
+*   [O-RAN.WG3.E2GAP](https://oranalliance.atlassian.net/wiki/spaces/OWG/pages/136413205/O-RAN.WG3.E2GAP-v03.00) - E2 General Aspects and Principles
+*   [O-RAN.WG3.E2AP](https://oranalliance.atlassian.net/wiki/spaces/OWG/pages/136413213/O-RAN.WG3.E2AP-v03.00) - E2 Application Protocol
+*   [O-RAN.WG3.E2SM](https://oranalliance.atlassian.net/wiki/spaces/OWG/pages/136413221/O-RAN.WG3.E2SM-v03.00) - E2 Service Model
+*   [O-RAN.WG2.Use-Cases](https://www.o-ran.org/specifications) - Near-RT RIC use cases and requirements
+
+### Interface Compliance
+*   **E2 Interface**: RAN node control and telemetry
+*   **A1 Interface**: Policy management from Non-RT RIC
+*   **O1 Interface**: Operation and maintenance
 
 ## Documentation
 
