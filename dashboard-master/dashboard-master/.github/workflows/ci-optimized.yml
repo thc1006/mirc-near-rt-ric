@@ -1,0 +1,457 @@
+# Copyright 2017 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 🔄 Optimized CI Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'aio/deploy/**'
+      - 'aio/test-resources/**'
+      - '.github/workflows/cd-*.yml'
+  pull_request:
+    branches: [ master, main ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'aio/deploy/**'
+      - 'aio/test-resources/**'
+      - '.github/workflows/cd-*.yml'
+
+# Ensure only one workflow runs per PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+  checks: write
+  pull-requests: write
+
+env:
+  # Global environment variables
+  GO_VERSION: '1.21'
+  NODE_VERSION: '18.17.0'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  
+  # Performance optimizations
+  NODE_OPTIONS: "--max-old-space-size=8192"
+  NG_CLI_ANALYTICS: false
+  GO111MODULE: on
+  GOPROXY: "https://proxy.golang.org,direct"
+  GOSUMDB: sum.golang.org
+  TERM: xterm
+
+jobs:
+  # Pre-flight checks and setup
+  setup:
+    name: 🔍 Setup & Validation
+    runs-on: ubuntu-latest
+    outputs:
+      go-cache-key: ${{ steps.go-cache.outputs.cache-hit }}
+      node-cache-key: ${{ steps.node-cache.outputs.cache-hit }}
+      go-version: ${{ env.GO_VERSION }}
+      node-version: ${{ env.NODE_VERSION }}
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: 🏎️ Cache Go Dependencies
+        id: go-cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ env.GO_VERSION }}-
+            ${{ runner.os }}-go-
+
+      - name: 🏎️ Cache Node Dependencies
+        id: node-cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            ~/.cache/Cypress
+          key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.NODE_VERSION }}-
+            ${{ runner.os }}-node-
+
+      - name: 📦 Install Dependencies
+        run: |
+          if [ ! -d "node_modules" ]; then
+            npm ci --prefer-offline --no-audit
+          fi
+          go mod download
+
+  # Parallel linting and security scanning
+  lint-and-security:
+    name: 🔍 Code Quality & Security
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      matrix:
+        scanner: ['go-lint', 'js-lint', 'security-scan', 'dependency-scan']
+      fail-fast: false
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐹 Setup Go
+        if: matrix.scanner == 'go-lint' || matrix.scanner == 'security-scan'
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 📦 Setup Node.js
+        if: matrix.scanner == 'js-lint' || matrix.scanner == 'dependency-scan'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 🏎️ Restore Caches
+        uses: actions/cache/restore@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            node_modules
+            ~/.npm
+          key: ${{ runner.os }}-deps-${{ hashFiles('**/go.sum', '**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+      # Go Linting
+      - name: 🐹 Go Linting & Static Analysis
+        if: matrix.scanner == 'go-lint'
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          args: --timeout=10m --config=.golangci.yml
+          working-directory: src/app/backend
+
+      # JavaScript/TypeScript Linting
+      - name: 📦 Install JS Dependencies
+        if: matrix.scanner == 'js-lint'
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+
+      - name: 🎯 ESLint & Prettier Check
+        if: matrix.scanner == 'js-lint'
+        run: |
+          npm run lint
+          npm run check:format
+
+      # Security Scanning
+      - name: 🔒 Go Security Scan (Gosec)
+        if: matrix.scanner == 'security-scan'
+        uses: securecodewarrior/github-action-gosec@master
+        with:
+          args: '-fmt sarif -out gosec-results.sarif ./...'
+          
+      - name: 📤 Upload Gosec Results
+        if: matrix.scanner == 'security-scan'
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: gosec-results.sarif
+
+      # Dependency Vulnerability Scanning
+      - name: 🔍 Node.js Vulnerability Scan
+        if: matrix.scanner == 'dependency-scan'
+        run: |
+          npm audit --audit-level=high
+          npx audit-ci --config audit-ci.json
+
+      - name: 🔍 Go Vulnerability Scan
+        if: matrix.scanner == 'security-scan'
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  # Parallel testing jobs
+  test:
+    name: 🧪 Testing Suite
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      matrix:
+        test-type: ['frontend-unit', 'backend-unit', 'integration', 'e2e']
+      fail-fast: false
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐹 Setup Go
+        if: contains(matrix.test-type, 'backend') || contains(matrix.test-type, 'e2e')
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 🏎️ Restore Dependencies
+        uses: actions/cache/restore@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            node_modules
+            ~/.npm
+            ~/.cache/Cypress
+          key: ${{ runner.os }}-deps-${{ hashFiles('**/go.sum', '**/package-lock.json') }}
+
+      - name: 📦 Install Dependencies
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+          if [ "${{ contains(matrix.test-type, 'backend') }}" == "true" ]; then
+            go mod download
+          fi
+
+      # Increase watchers for E2E tests
+      - name: ⚙️ System Optimization
+        if: matrix.test-type == 'e2e'
+        run: |
+          echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
+          sudo sysctl -p
+
+      # Frontend Unit Tests
+      - name: 🧪 Frontend Unit Tests
+        if: matrix.test-type == 'frontend-unit'
+        run: |
+          npm run test:ci
+          npm run coverage:frontend
+
+      # Backend Unit Tests
+      - name: 🧪 Backend Unit Tests
+        if: matrix.test-type == 'backend-unit'
+        run: |
+          make coverage-backend
+          go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      # Integration Tests
+      - name: 🧪 Integration Tests
+        if: matrix.test-type == 'integration'
+        run: |
+          make test:integration
+
+      # E2E Tests
+      - name: 🧪 E2E Tests
+        if: matrix.test-type == 'e2e'
+        run: |
+          make e2e
+        env:
+          CYPRESS_CACHE_FOLDER: ~/.cache/Cypress
+
+      # Upload test results
+      - name: 📤 Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.test-type }}
+          path: |
+            coverage/
+            test-results/
+            cypress/screenshots/
+            cypress/videos/
+          retention-days: 7
+
+      # Upload coverage to Codecov
+      - name: 📊 Upload Coverage
+        if: matrix.test-type == 'frontend-unit' || matrix.test-type == 'backend-unit'
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.out
+          flags: ${{ matrix.test-type }}
+          name: ${{ matrix.test-type }}-coverage
+          fail_ci_if_error: false
+
+  # Build optimization with caching
+  build:
+    name: 🏗️ Build & Package
+    runs-on: ubuntu-latest
+    needs: [setup, lint-and-security]
+    strategy:
+      matrix:
+        platform: ['linux/amd64', 'linux/arm64']
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-metadata: ${{ steps.build.outputs.metadata }}
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 🏎️ Restore Dependencies
+        uses: actions/cache/restore@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            node_modules
+            ~/.npm
+          key: ${{ runner.os }}-deps-${{ hashFiles('**/go.sum', '**/package-lock.json') }}
+
+      - name: 📦 Install Dependencies
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+          go mod download
+
+      # Set up Docker Buildx for multi-platform builds
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: ${{ matrix.platform }}
+
+      - name: 🔑 Login to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Extract metadata for better tagging
+      - name: 🏷️ Extract Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Build application
+      - name: 🏗️ Build Application
+        run: |
+          export GOPATH=$(go env GOPATH)/bin
+          make build
+
+      # Build and push Docker image with enhanced caching
+      - name: 🐳 Build and Push Docker Image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
+            NODE_VERSION=${{ env.NODE_VERSION }}
+            BUILDKIT_INLINE_CACHE=1
+
+  # Container security scanning
+  container-security:
+    name: 🔒 Container Security Scan
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: 🔍 Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: 📤 Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Status check aggregation
+  status-check:
+    name: ✅ CI Status Check
+    runs-on: ubuntu-latest
+    needs: [lint-and-security, test, build]
+    if: always()
+    steps:
+      - name: 📊 Aggregate Results
+        run: |
+          echo "Lint & Security: ${{ needs.lint-and-security.result }}"
+          echo "Tests: ${{ needs.test.result }}"
+          echo "Build: ${{ needs.build.result }}"
+          
+          if [[ "${{ needs.lint-and-security.result }}" == "failure" || 
+                "${{ needs.test.result }}" == "failure" || 
+                "${{ needs.build.result }}" == "failure" ]]; then
+            echo "❌ CI Pipeline Failed"
+            exit 1
+          else
+            echo "✅ CI Pipeline Passed"
+          fi
+
+      - name: 📬 Notify on Failure
+        if: failure() && github.event_name == 'push'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+          text: "CI Pipeline failed for commit ${{ github.sha }}"
