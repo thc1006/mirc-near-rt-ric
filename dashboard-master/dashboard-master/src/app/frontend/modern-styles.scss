@@ -1,0 +1,270 @@
+// Modern CSS utilities to replace Angular Flex Layout
+// This file provides equivalent functionality to @angular/flex-layout directives
+
+// Layout Utilities
+.layout-row {
+  display: flex;
+  flex-direction: row;
+}
+
+.layout-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.layout-row-reverse {
+  display: flex;
+  flex-direction: row-reverse;
+}
+
+.layout-column-reverse {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.layout-wrap {
+  flex-wrap: wrap;
+}
+
+.layout-nowrap {
+  flex-wrap: nowrap;
+}
+
+// Alignment Utilities
+.align-start {
+  align-items: flex-start;
+}
+
+.align-center {
+  align-items: center;
+}
+
+.align-end {
+  align-items: flex-end;
+}
+
+.align-stretch {
+  align-items: stretch;
+}
+
+.align-baseline {
+  align-items: baseline;
+}
+
+.justify-start {
+  justify-content: flex-start;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-end {
+  justify-content: flex-end;
+}
+
+.justify-around {
+  justify-content: space-around;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.justify-evenly {
+  justify-content: space-evenly;
+}
+
+// Combined Layout + Alignment (replaces fxLayoutAlign)
+.layout-align-start-start {
+  @extend .layout-row, .justify-start, .align-start;
+}
+
+.layout-align-start-center {
+  @extend .layout-row, .justify-start, .align-center;
+}
+
+.layout-align-center-center {
+  @extend .layout-row, .justify-center, .align-center;
+}
+
+.layout-align-end-center {
+  @extend .layout-row, .justify-end, .align-center;
+}
+
+.layout-align-space-between-center {
+  @extend .layout-row, .justify-between, .align-center;
+}
+
+// Flex Utilities
+.flex-auto {
+  flex: 1 1 auto;
+}
+
+.flex-none {
+  flex: none;
+}
+
+.flex-grow {
+  flex-grow: 1;
+}
+
+.flex-shrink {
+  flex-shrink: 1;
+}
+
+// Flex Percentages (replaces fxFlex="30", etc.)
+.flex-10 { flex: 0 1 10%; }
+.flex-15 { flex: 0 1 15%; }
+.flex-20 { flex: 0 1 20%; }
+.flex-25 { flex: 0 1 25%; }
+.flex-30 { flex: 0 1 30%; }
+.flex-33 { flex: 0 1 33.33%; }
+.flex-35 { flex: 0 1 35%; }
+.flex-40 { flex: 0 1 40%; }
+.flex-45 { flex: 0 1 45%; }
+.flex-50 { flex: 0 1 50%; }
+.flex-55 { flex: 0 1 55%; }
+.flex-60 { flex: 0 1 60%; }
+.flex-65 { flex: 0 1 65%; }
+.flex-66 { flex: 0 1 66.66%; }
+.flex-70 { flex: 0 1 70%; }
+.flex-75 { flex: 0 1 75%; }
+.flex-80 { flex: 0 1 80%; }
+.flex-85 { flex: 0 1 85%; }
+.flex-90 { flex: 0 1 90%; }
+.flex-95 { flex: 0 1 95%; }
+.flex-100 { flex: 0 1 100%; }
+
+// Gap Utilities (replaces fxLayoutGap)
+.gap-4 { gap: 4px; }
+.gap-8 { gap: 8px; }
+.gap-12 { gap: 12px; }
+.gap-16 { gap: 16px; }
+.gap-20 { gap: 20px; }
+.gap-24 { gap: 24px; }
+.gap-32 { gap: 32px; }
+
+// Row and Column Gaps
+.gap-row-4 { row-gap: 4px; }
+.gap-row-8 { row-gap: 8px; }
+.gap-row-16 { row-gap: 16px; }
+
+.gap-col-4 { column-gap: 4px; }
+.gap-col-8 { column-gap: 8px; }
+.gap-col-16 { column-gap: 16px; }
+
+// Padding Utilities
+.p-4 { padding: 4px; }
+.p-8 { padding: 8px; }
+.p-12 { padding: 12px; }
+.p-16 { padding: 16px; }
+.p-20 { padding: 20px; }
+.p-24 { padding: 24px; }
+.p-32 { padding: 32px; }
+
+// Margin Utilities
+.m-4 { margin: 4px; }
+.m-8 { margin: 8px; }
+.m-12 { margin: 12px; }
+.m-16 { margin: 16px; }
+.m-20 { margin: 20px; }
+.m-24 { margin: 24px; }
+.m-32 { margin: 32px; }
+
+// Auto margins
+.ml-auto { margin-left: auto; }
+.mr-auto { margin-right: auto; }
+.mt-auto { margin-top: auto; }
+.mb-auto { margin-bottom: auto; }
+
+// Hide/Show Utilities (replaces fxHide/fxShow)
+.hide { display: none !important; }
+.show { display: block !important; }
+
+// Responsive Utilities
+@media (max-width: 599px) {
+  .hide-xs { display: none !important; }
+  .show-xs { display: block !important; }
+  .layout-xs-column { flex-direction: column !important; }
+  .layout-xs-row { flex-direction: row !important; }
+}
+
+@media (min-width: 600px) and (max-width: 959px) {
+  .hide-sm { display: none !important; }
+  .show-sm { display: block !important; }
+  .layout-sm-column { flex-direction: column !important; }
+  .layout-sm-row { flex-direction: row !important; }
+}
+
+@media (min-width: 960px) and (max-width: 1279px) {
+  .hide-md { display: none !important; }
+  .show-md { display: block !important; }
+  .layout-md-column { flex-direction: column !important; }
+  .layout-md-row { flex-direction: row !important; }
+}
+
+@media (min-width: 1280px) and (max-width: 1919px) {
+  .hide-lg { display: none !important; }
+  .show-lg { display: block !important; }
+  .layout-lg-column { flex-direction: column !important; }
+  .layout-lg-row { flex-direction: row !important; }
+}
+
+@media (min-width: 1920px) {
+  .hide-xl { display: none !important; }
+  .show-xl { display: block !important; }
+  .layout-xl-column { flex-direction: column !important; }
+  .layout-xl-row { flex-direction: row !important; }
+}
+
+// Container Utilities
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.container-fluid {
+  width: 100%;
+  padding: 0 16px;
+}
+
+// Grid System (alternative to flex layout)
+.grid {
+  display: grid;
+}
+
+.grid-cols-1 { grid-template-columns: repeat(1, 1fr); }
+.grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-cols-6 { grid-template-columns: repeat(6, 1fr); }
+.grid-cols-12 { grid-template-columns: repeat(12, 1fr); }
+
+.col-span-1 { grid-column: span 1; }
+.col-span-2 { grid-column: span 2; }
+.col-span-3 { grid-column: span 3; }
+.col-span-4 { grid-column: span 4; }
+.col-span-6 { grid-column: span 6; }
+.col-span-12 { grid-column: span 12; }
+
+// Material Design specific adjustments
+.mat-mdc-card {
+  .layout-row {
+    align-items: center;
+  }
+  
+  .layout-column {
+    align-items: stretch;
+  }
+}
+
+// Angular Material overrides for better flex support
+.mat-mdc-button,
+.mat-mdc-icon-button {
+  &.flex-none {
+    flex: none !important;
+  }
+}
