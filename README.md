@@ -7,7 +7,41 @@
 
 Kubernetes Dashboard is a general purpose, web-based UI for Kubernetes clusters. It allows users to manage applications running in the cluster and troubleshoot them, as well as manage the cluster itself.
 
+## O-RAN Near-RT RIC Overview
+
+This project provides a comprehensive O-RAN (Open Radio Access Network) Near Real-Time RAN Intelligent Controller (Near-RT RIC) platform for xApp deployment and management.
+
+### Architecture Diagram
+
+```
++--------------------------------------------------+
+|               Near-RT RIC Platform               |
+|                                                  |
+|  +------------------+      +-------------------+ |
+|  |     Dashboard    |      |   xAPP Dashboard  | |
+|  | (Management UI)  |<---->|  (xApp Lifecycle) | |
+|  +------------------+      +-------------------+ |
+|         ^                                        |
+|         |                                        |
+|         v                                        |
+|  +------------------+                            |
+|  |   E2 Interface   |                            |
+|  |  (RAN Control)   |                            |
+|  +------------------+                            |
+|                                                  |
++--------------------------------------------------+
+```
+
 ![Dashboard UI workloads page](https://github.com/user-attachments/assets/47a058da-63a8-4140-ae68-592e615c88df)
+
+
+## Quick Start
+
+This section provides the minimum requirements to get the Near-RT RIC platform running.
+
+*   **Go:** `1.17+`
+*   **Node.js:** `16.14.2+`
+*   **Kubernetes:** `1.21+`
 
 
 ## Getting Started
@@ -42,6 +76,13 @@ To find out how to create sample user and log in follow [Creating sample user](d
 **NOTE:**
 * Kubeconfig Authentication method does not support external identity providers or certificate-based authentication.
 * [Metrics-Server](https://github.com/kubernetes-sigs/metrics-server) has to be running in the cluster for the metrics and graphs to be available. Read more about it in [Integrations](docs/user/integrations.md) guide.
+
+## O-RAN Specifications
+
+For more information on the O-RAN Alliance and its specifications, please refer to the following resources:
+
+*   [O-RAN Alliance Official Website](https://www.o-ran.org/)
+*   [O-RAN Architecture Specifications](https://www.o-ran.org/specifications)
 
 ## Documentation
 
