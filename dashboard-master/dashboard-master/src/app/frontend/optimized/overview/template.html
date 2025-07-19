@@ -1,0 +1,290 @@
+<!--
+Copyright 2017 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="kd-optimized-overview" 
+     fxLayout="column" 
+     fxLayoutGap="25px"
+     [attr.data-group-id]="'overview'">
+
+  <!-- Zero state with reactive display -->
+  <div *ngIf="shouldShowZeroState$ | async" 
+       class="kd-zero-state"
+       role="status"
+       aria-live="polite">
+    <kd-list-zero-state></kd-list-zero-state>
+  </div>
+
+  <!-- Workload Status Overview -->
+  <div *ngIf="showWorkloadStatuses$ | async" 
+       class="kd-workload-status-container">
+    <kd-workload-statuses 
+      [resourcesRatio]="resourcesRatio$ | async"
+      [cumulativeMetrics]="cumulativeMetrics$ | async">
+    </kd-workload-statuses>
+  </div>
+
+  <!-- Cluster Information Section -->
+  <div *ngIf="hasCluster$ | async" 
+       class="kd-section-cluster"
+       [attr.data-group-id]="'cluster'"
+       [attr.data-component-id]="'cluster-info'">
+    
+    <mat-card class="kd-card kd-card-section">
+      <mat-card-header class="kd-card-header">
+        <mat-card-title i18n="@@MSG_OVERVIEW_CLUSTER_TITLE">
+          Cluster
+        </mat-card-title>
+      </mat-card-header>
+      
+      <mat-card-content>
+        <div fxLayout="row wrap" fxLayoutGap="25px">
+          <!-- Cluster resource lists with lazy loading -->
+          <div fxFlex="50" fxFlex.xs="100" *ngIf="hasCluster$ | async">
+            <kd-node-list 
+              [id]="'node'"
+              [groupId]="'cluster'"
+              (onchange)="onListUpdate($event)"
+              [attr.data-component-id]="'node-list'">
+            </kd-node-list>
+          </div>
+          
+          <div fxFlex="50" fxFlex.xs="100" *ngIf="hasCluster$ | async">
+            <kd-persistent-volume-list 
+              [id]="'persistentvolume'"
+              [groupId]="'cluster'"
+              (onchange)="onListUpdate($event)"
+              [attr.data-component-id]="'pv-list'">
+            </kd-persistent-volume-list>
+          </div>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <!-- Workloads Section with Virtual Scrolling -->
+  <div *ngIf="hasWorkloads$ | async" 
+       class="kd-section-workloads"
+       [attr.data-group-id]="'workloads'"
+       [attr.data-component-id]="'workloads'">
+    
+    <mat-card class="kd-card kd-card-section">
+      <mat-card-header class="kd-card-header">
+        <mat-card-title i18n="@@MSG_OVERVIEW_WORKLOADS_TITLE">
+          Workloads
+        </mat-card-title>
+      </mat-card-header>
+      
+      <mat-card-content>
+        <!-- Virtual scrolling container for large workload lists -->
+        <cdk-virtual-scroll-viewport 
+          itemSize="280" 
+          class="kd-virtual-scroll-viewport"
+          [style.height]="'600px'">
+          
+          <div *cdkVirtualFor="let group of getWorkloadGroups(); trackBy: trackByGroupId" 
+               class="kd-workload-group"
+               [attr.data-group-id]="group.id">
+            
+            <div fxLayout="row wrap" fxLayoutGap="25px" class="kd-workload-row">
+              
+              <!-- CronJob List -->
+              <div fxFlex="50" fxFlex.xs="100" 
+                   *ngIf="group.id === 'cronjob'"
+                   [attr.data-component-id]="'cronjob-list'">
+                <kd-cron-job-list 
+                  [id]="'cronjob'"
+                  [groupId]="'workloads'"
+                  (onchange)="onListUpdate($event)"
+                  #workloadComponents>
+                </kd-cron-job-list>
+              </div>
+
+              <!-- DaemonSet List -->
+              <div fxFlex="50" fxFlex.xs="100" 
+                   *ngIf="group.id === 'daemonset'"
+                   [attr.data-component-id]="'daemonset-list'">
+                <kd-daemon-set-list 
+                  [id]="'daemonset'"
+                  [groupId]="'workloads'"
+                  (onchange)="onListUpdate($event)"
+                  #workloadComponents>
+                </kd-daemon-set-list>
+              </div>
+
+              <!-- Deployment List -->
+              <div fxFlex="50" fxFlex.xs="100" 
+                   *ngIf="group.id === 'deployment'"
+                   [attr.data-component-id]="'deployment-list'">
+                <kd-deployment-list 
+                  [id]="'deployment'"
+                  [groupId]="'workloads'"
+                  (onchange)="onListUpdate($event)"
+                  #workloadComponents>
+                </kd-deployment-list>
+              </div>
+
+              <!-- Job List -->
+              <div fxFlex="50" fxFlex.xs="100" 
+                   *ngIf="group.id === 'job'"
+                   [attr.data-component-id]="'job-list'">
+                <kd-job-list 
+                  [id]="'job'"
+                  [groupId]="'workloads'"
+                  (onchange)="onListUpdate($event)"
+                  #workloadComponents>
+                </kd-job-list>
+              </div>
+
+              <!-- Pod List -->
+              <div fxFlex="50" fxFlex.xs="100" 
+                   *ngIf="group.id === 'pod'"
+                   [attr.data-component-id]="'pod-list'">
+                <kd-pod-list 
+                  [id]="'pod'"
+                  [groupId]="'workloads'"
+                  [showMetrics]="true"
+                  (onchange)="onListUpdate($event)"
+                  #workloadComponents>
+                </kd-pod-list>
+              </div>
+
+              <!-- ReplicaSet List -->
+              <div fxFlex="50" fxFlex.xs="100" 
+                   *ngIf="group.id === 'replicaset'"
+                   [attr.data-component-id]="'replicaset-list'">
+                <kd-replica-set-list 
+                  [id]="'replicaset'"
+                  [groupId]="'workloads'"
+                  (onchange)="onListUpdate($event)"
+                  #workloadComponents>
+                </kd-replica-set-list>
+              </div>
+
+              <!-- ReplicationController List -->
+              <div fxFlex="50" fxFlex.xs="100" 
+                   *ngIf="group.id === 'replicationcontroller'"
+                   [attr.data-component-id]="'rc-list'">
+                <kd-replication-controller-list 
+                  [id]="'replicationcontroller'"
+                  [groupId]="'workloads'"
+                  (onchange)="onListUpdate($event)"
+                  #workloadComponents>
+                </kd-replication-controller-list>
+              </div>
+
+              <!-- StatefulSet List -->
+              <div fxFlex="50" fxFlex.xs="100" 
+                   *ngIf="group.id === 'statefulset'"
+                   [attr.data-component-id]="'statefulset-list'">
+                <kd-stateful-set-list 
+                  [id]="'statefulset'"
+                  [groupId]="'workloads'"
+                  (onchange)="onListUpdate($event)"
+                  #workloadComponents>
+                </kd-stateful-set-list>
+              </div>
+              
+            </div>
+          </div>
+        </cdk-virtual-scroll-viewport>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <!-- Service Discovery Section -->
+  <div *ngIf="hasDiscovery$ | async" 
+       class="kd-section-discovery"
+       [attr.data-group-id]="'discovery'"
+       [attr.data-component-id]="'discovery'">
+    
+    <mat-card class="kd-card kd-card-section">
+      <mat-card-header class="kd-card-header">
+        <mat-card-title i18n="@@MSG_OVERVIEW_DISCOVERY_TITLE">
+          Service Discovery and Load Balancing
+        </mat-card-title>
+      </mat-card-header>
+      
+      <mat-card-content>
+        <div fxLayout="row wrap" fxLayoutGap="25px">
+          <div fxFlex="50" fxFlex.xs="100">
+            <kd-service-list 
+              [id]="'service'"
+              [groupId]="'discovery'"
+              (onchange)="onListUpdate($event)"
+              [attr.data-component-id]="'service-list'">
+            </kd-service-list>
+          </div>
+          
+          <div fxFlex="50" fxFlex.xs="100">
+            <kd-ingress-list 
+              [id]="'ingress'"
+              [groupId]="'discovery'"
+              (onchange)="onListUpdate($event)"
+              [attr.data-component-id]="'ingress-list'">
+            </kd-ingress-list>
+          </div>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <!-- Configuration Section -->
+  <div *ngIf="hasConfig$ | async" 
+       class="kd-section-config"
+       [attr.data-group-id]="'config'"
+       [attr.data-component-id]="'config'">
+    
+    <mat-card class="kd-card kd-card-section">
+      <mat-card-header class="kd-card-header">
+        <mat-card-title i18n="@@MSG_OVERVIEW_CONFIG_TITLE">
+          Config and Storage
+        </mat-card-title>
+      </mat-card-header>
+      
+      <mat-card-content>
+        <div fxLayout="row wrap" fxLayoutGap="25px">
+          <div fxFlex="50" fxFlex.xs="100">
+            <kd-config-map-list 
+              [id]="'configmap'"
+              [groupId]="'config'"
+              (onchange)="onListUpdate($event)"
+              [attr.data-component-id]="'configmap-list'">
+            </kd-config-map-list>
+          </div>
+          
+          <div fxFlex="50" fxFlex.xs="100">
+            <kd-secret-list 
+              [id]="'secret'"
+              [groupId]="'config'"
+              (onchange)="onListUpdate($event)"
+              [attr.data-component-id]="'secret-list'">
+            </kd-secret-list>
+          </div>
+          
+          <div fxFlex="50" fxFlex.xs="100">
+            <kd-persistent-volume-claim-list 
+              [id]="'persistentvolumeclaim'"
+              [groupId]="'config'"
+              (onchange)="onListUpdate($event)"
+              [attr.data-component-id]="'pvc-list'">
+            </kd-persistent-volume-claim-list>
+          </div>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+</div>
