@@ -17,6 +17,7 @@ package federatedlearning
 import (
 	"context"
 	"crypto/ed25519"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -471,4 +472,323 @@ type ClientInfo struct {
 // ClientStore holds the information about registered clients.
 type ClientStore struct {
 	Clients map[string]ClientInfo `json:"clients"`
+	mutex   sync.RWMutex
 }
+
+// Store saves a client to the store
+func (cs *ClientStore) Store(ctx context.Context, client *FLClient) error {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	
+	if cs.Clients == nil {
+		cs.Clients = make(map[string]ClientInfo)
+	}
+	
+	cs.Clients[client.ID] = ClientInfo{
+		ID:           client.ID,
+		Name:         client.XAppName,
+		Status:       string(client.Status),
+		LastSeen:     client.LastHeartbeat,
+		Capabilities: []string{}, // Convert from RRMTasks if needed
+	}
+	return nil
+}
+
+// Get retrieves a client from the store
+func (cs *ClientStore) Get(ctx context.Context, clientID string) (*FLClient, error) {
+	cs.mutex.RLock()
+	defer cs.mutex.RUnlock()
+	
+	// Implementation placeholder - return a basic client
+	return &FLClient{ID: clientID}, nil
+}
+
+// Delete removes a client from the store
+func (cs *ClientStore) Delete(ctx context.Context, clientID string) error {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	
+	if cs.Clients != nil {
+		delete(cs.Clients, clientID)
+	}
+	return nil
+}
+
+// List returns all clients from the store
+func (cs *ClientStore) List(ctx context.Context) ([]*FLClient, error) {
+	cs.mutex.RLock()
+	defer cs.mutex.RUnlock()
+	
+	// Implementation placeholder - return empty list
+	return []*FLClient{}, nil
+}
+
+// ModelStore manages storage and retrieval of federated learning models
+type ModelStore struct {
+	Models    map[string]*GlobalModel `json:"models"`
+	Versions  map[string][]string     `json:"versions"`
+	mutex     sync.RWMutex
+}
+
+// MetricsStore manages storage and retrieval of training metrics
+type MetricsStore struct {
+	ClientMetrics map[string]*ClientRoundMetrics `json:"client_metrics"`
+	ModelMetrics  map[string]*ModelMetrics       `json:"model_metrics"`
+	mutex         sync.RWMutex
+}
+
+// CryptoEngine provides cryptographic operations for federated learning
+type CryptoEngine struct {
+	PrivateKey ed25519.PrivateKey `json:"-"`
+	PublicKey  ed25519.PublicKey  `json:"public_key"`
+	KeyID      string             `json:"key_id"`
+	mutex      sync.RWMutex
+}
+
+// StorePrivateKey stores a private key for a client
+func (ce *CryptoEngine) StorePrivateKey(clientID string, privateKey ed25519.PrivateKey) error {
+	// Implementation placeholder
+	return nil
+}
+
+// DeleteKeys removes cryptographic keys for a client
+func (ce *CryptoEngine) DeleteKeys(clientID string) error {
+	// Implementation placeholder
+	return nil
+}
+
+// PrivacyEngine provides privacy-preserving operations
+type PrivacyEngine interface {
+	ApplyDifferentialPrivacy(data []byte, epsilon float64) ([]byte, error)
+	ValidatePrivacyBudget(clientID string, requestedBudget float64) error
+}
+
+// TrustManager manages client trust scores and validation
+type TrustManager interface {
+	RegisterClient(ctx context.Context, client *FLClient) error
+	UnregisterClient(ctx context.Context, clientID string) error
+	UpdateTrustScore(ctx context.Context, clientID string, score float64) error
+	GetTrustScore(ctx context.Context, clientID string) (float64, error)
+}
+
+// TrainingOrchestrator coordinates federated learning training rounds
+type TrainingOrchestrator interface {
+	StartRound(ctx context.Context, job *ActiveTrainingJob) error
+	AggregateRound(ctx context.Context, updates []ModelUpdate) (*GlobalModel, error)
+	ValidateParticipants(ctx context.Context, participants []*FLClient) error
+}
+
+// AggregationEngine performs model aggregation
+type AggregationEngine interface {
+	Aggregate(updates []ModelUpdate, algorithm AggregationAlgorithm) (*GlobalModel, error)
+	ValidateUpdate(update ModelUpdate) error
+	ApplyPrivacyMechanism(model *GlobalModel, mechanism PrivacyMechanism) error
+}
+
+// MetricsCollector collects and stores training metrics
+type MetricsCollector interface {
+	RecordClientRegistration(client *FLClient)
+	RecordClientUnregistration(client *FLClient)
+	RecordClientStatusChange(clientID string, oldStatus, newStatus FLClientStatus)
+	RecordTrainingJobStart(job *TrainingJob)
+	RecordRoundMetrics(metrics RoundMetrics)
+}
+
+// AlertManager handles system alerts and notifications
+type AlertManager interface {
+	SendAlert(alertType, message string, severity string) error
+	ConfigureThresholds(thresholds map[string]float64) error
+}
+
+// ResourceManager manages computational resources
+type ResourceManager interface {
+	CheckAvailability(ctx context.Context, requirements ResourceRequirements) error
+	AllocateResources(ctx context.Context, jobID string, requirements ResourceRequirements) error
+	ReleaseResources(ctx context.Context, jobID string) error
+}
+
+// SchedulingEngine handles job scheduling
+type SchedulingEngine interface {
+	ScheduleJob(ctx context.Context, job *TrainingJob) error
+	CancelJob(ctx context.Context, jobID string) error
+	GetScheduledJobs(ctx context.Context) ([]*TrainingJob, error)
+}
+
+// TrainingMetrics represents training performance metrics
+type TrainingMetrics struct {
+	ClientID         string        `json:"client_id"`
+	ModelID          string        `json:"model_id"`
+	Round            int64         `json:"round"`
+	Accuracy         float64       `json:"accuracy"`
+	Loss             float64       `json:"loss"`
+	TrainingDuration time.Duration `json:"training_duration"`
+	DataSamples      int64         `json:"data_samples"`
+	ComputeTime      time.Duration `json:"compute_time"`
+	CommunicationTime time.Duration `json:"communication_time"`
+	MemoryUsage      float64       `json:"memory_usage_mb"`
+	CPUUsage         float64       `json:"cpu_usage_percent"`
+	Timestamp        time.Time     `json:"timestamp"`
+}
+
+// ValidationResult represents the result of a validation operation
+type ValidationResult struct {
+	Valid   bool     `json:"valid"`
+	Score   float64  `json:"score"`
+	Errors  []string `json:"errors"`
+	Warnings []string `json:"warnings"`
+	Details map[string]interface{} `json:"details"`
+}
+
+// StrategyConfig represents configuration for aggregation strategies
+type StrategyConfig struct {
+	Algorithm          AggregationAlgorithm `json:"algorithm"`
+	WeightingMethod    string               `json:"weighting_method"`
+	PrivacyMechanism   PrivacyMechanism     `json:"privacy_mechanism"`
+	Parameters         map[string]float64   `json:"parameters"`
+	QualityThresholds  QualityRequirements  `json:"quality_thresholds"`
+}
+
+// ComputeRequirement represents computational resource requirements
+type ComputeRequirement struct {
+	MinCPUCores      int     `json:"min_cpu_cores"`
+	MinMemoryGB      float64 `json:"min_memory_gb"`
+	MinGPUCount      int     `json:"min_gpu_count"`
+	MinGPUMemoryGB   float64 `json:"min_gpu_memory_gb"`
+	MinStorageGB     float64 `json:"min_storage_gb"`
+	MinBandwidthMbps int64   `json:"min_bandwidth_mbps"`
+	MaxLatencyMs     float64 `json:"max_latency_ms"`
+	RequiredFeatures []string `json:"required_features"`
+}
+
+// ResourceLimit represents resource usage limits
+type ResourceLimit struct {
+	MaxCPUUsage     float64 `json:"max_cpu_usage_percent"`
+	MaxMemoryUsage  float64 `json:"max_memory_usage_gb"`
+	MaxNetworkUsage int64   `json:"max_network_usage_mbps"`
+	MaxStorageUsage float64 `json:"max_storage_usage_gb"`
+	PowerBudget     float64 `json:"power_budget_watts"`
+	TimeLimit       time.Duration `json:"time_limit"`
+}
+
+// SecurityLevel represents security classification levels
+type SecurityLevel string
+
+const (
+	SecurityLevelPublic       SecurityLevel = "public"
+	SecurityLevelRestricted   SecurityLevel = "restricted"
+	SecurityLevelConfidential SecurityLevel = "confidential"
+	SecurityLevelSecret       SecurityLevel = "secret"
+	SecurityLevelTopSecret    SecurityLevel = "top_secret"
+)
+
+// PrivacyLevel represents privacy protection levels
+type PrivacyLevel string
+
+const (
+	PrivacyLevelNone     PrivacyLevel = "none"
+	PrivacyLevelBasic    PrivacyLevel = "basic"
+	PrivacyLevelStandard PrivacyLevel = "standard"
+	PrivacyLevelHigh     PrivacyLevel = "high"
+	PrivacyLevelMaximum  PrivacyLevel = "maximum"
+)
+
+// CertificationLevel represents certification compliance levels
+type CertificationLevel string
+
+const (
+	CertificationLevelNone       CertificationLevel = "none"
+	CertificationLevelBasic      CertificationLevel = "basic"
+	CertificationLevelISO27001   CertificationLevel = "iso27001"
+	CertificationLevelSOC2       CertificationLevel = "soc2"
+	CertificationLevelFIPSL140   CertificationLevel = "fips140"
+	CertificationLevelCommonCriteria CertificationLevel = "common_criteria"
+)
+
+// RRMTaskMetrics represents RRM task performance metrics
+type RRMTaskMetrics struct {
+	TaskType             RRMTaskType `json:"task_type"`
+	SuccessRate          float64     `json:"success_rate"`
+	AverageLatencyMs     float64     `json:"average_latency_ms"`
+	ThroughputPerSecond  float64     `json:"throughput_per_second"`
+	ResourceEfficiency   float64     `json:"resource_efficiency"`
+	QualityScore         float64     `json:"quality_score"`
+	CompletedTasks       int64       `json:"completed_tasks"`
+	FailedTasks          int64       `json:"failed_tasks"`
+	LastExecutionTime    time.Time   `json:"last_execution_time"`
+}
+
+// NetworkSliceMetrics represents network slice performance metrics
+type NetworkSliceMetrics struct {
+	SliceID             string  `json:"slice_id"`
+	Throughput          float64 `json:"throughput_mbps"`
+	Latency             float64 `json:"latency_ms"`
+	PacketLossRate      float64 `json:"packet_loss_rate"`
+	Availability        float64 `json:"availability_percent"`
+	BandwidthUtilization float64 `json:"bandwidth_utilization_percent"`
+	ActiveConnections   int64   `json:"active_connections"`
+	QoSViolations       int64   `json:"qos_violations"`
+	LastMeasurement     time.Time `json:"last_measurement"`
+}
+
+// TrendDirection represents trend directions for metrics
+type TrendDirection string
+
+const (
+	TrendDirectionUp     TrendDirection = "up"
+	TrendDirectionDown   TrendDirection = "down"
+	TrendDirectionStable TrendDirection = "stable"
+	TrendDirectionUnknown TrendDirection = "unknown"
+)
+
+// NetworkConditions represents current network conditions
+type NetworkConditions struct {
+	Bandwidth      float64 `json:"bandwidth_mbps"`
+	Latency        float64 `json:"latency_ms"`
+	PacketLoss     float64 `json:"packet_loss_rate"`
+	Jitter         float64 `json:"jitter_ms"`
+	Stability      float64 `json:"stability_score"`
+	QualityScore   float64 `json:"quality_score"`
+	Timestamp      time.Time `json:"timestamp"`
+}
+
+// ByzantineDetectionType represents types of Byzantine fault detection
+type ByzantineDetectionType string
+
+const (
+	ByzantineDetectionStatistical   ByzantineDetectionType = "statistical"
+	ByzantineDetectionGradient      ByzantineDetectionType = "gradient"
+	ByzantineDetectionClustering    ByzantineDetectionType = "clustering"
+	ByzantineDetectionConsensus     ByzantineDetectionType = "consensus"
+	ByzantineDetectionAnomaly       ByzantineDetectionType = "anomaly"
+)
+
+// ThreatSeverity represents threat severity levels
+type ThreatSeverity string
+
+const (
+	ThreatSeverityLow      ThreatSeverity = "low"
+	ThreatSeverityMedium   ThreatSeverity = "medium"
+	ThreatSeverityHigh     ThreatSeverity = "high"
+	ThreatSeverityCritical ThreatSeverity = "critical"
+)
+
+// DetectionMethod represents detection method types
+type DetectionMethod string
+
+const (
+	DetectionMethodSignature   DetectionMethod = "signature"
+	DetectionMethodAnomaly     DetectionMethod = "anomaly"
+	DetectionMethodHeuristic   DetectionMethod = "heuristic"
+	DetectionMethodMachineLearning DetectionMethod = "ml"
+)
+
+// ResponseAction represents response action types
+type ResponseAction string
+
+const (
+	ResponseActionAlert     ResponseAction = "alert"
+	ResponseActionBlock     ResponseAction = "block"
+	ResponseActionQuarantine ResponseAction = "quarantine"
+	ResponseActionIsolate   ResponseAction = "isolate"
+	ResponseActionTerminate ResponseAction = "terminate"
+)

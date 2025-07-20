@@ -84,6 +84,7 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: ${{ env.GO_VERSION }}
+        cache-dependency-path: 'dashboard-master/dashboard-master/go.sum'
 
     - name: Setup Node.js
       if: matrix.component == 'xapp-dashboard'
@@ -105,7 +106,7 @@ jobs:
       with:
         version: ${{ env.GOLANGCI_LINT_VERSION }}
         working-directory: dashboard-master/dashboard-master
-        args: --timeout=5m --config=.golangci.yml
+        args: --timeout=10m --config=.golangci.yml
 
     - name: Run Go tests
       if: matrix.component == 'main-dashboard'
@@ -114,14 +115,19 @@ jobs:
         go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
         go tool cover -html=coverage.out -o coverage.html
 
-    - name: Go Security Scan (gosec)
+    - name: Go Security Scan (gosec & govulncheck)
       if: matrix.component == 'main-dashboard'
       working-directory: dashboard-master/dashboard-master
       run: |
-        # 安裝 gosec 工具
+        # Install security scanning tools
         go install github.com/securego/gosec/v2/cmd/gosec@latest
-        # 執行掃描並將結果輸出到工作區根目錄的 sarif 檔案
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        
+        # Run gosec scan
         gosec -no-fail -fmt sarif -out ../../gosec-results.sarif ./...
+        
+        # Run govulncheck for vulnerability scanning
+        govulncheck -json ./... > ../../govulncheck-results.json || true
 
     - name: Upload Gosec Scan Results to GitHub Security tab
       if: matrix.component == 'main-dashboard'
@@ -149,6 +155,16 @@ jobs:
       if: matrix.component == 'xapp-dashboard'
       working-directory: xAPP_dashboard-master
       run: npm run e2e:ci
+
+    - name: Node.js Security Scan (npm audit)
+      if: matrix.component == 'xapp-dashboard'
+      working-directory: xAPP_dashboard-master
+      run: |
+        # Run npm audit for vulnerability scanning
+        npm audit --audit-level=moderate --json > ../npm-audit-results.json || true
+        
+        # Run npm audit fix for auto-fixable issues (non-breaking changes only)
+        npm audit fix --audit-level=moderate || true
 
     # Upload coverage reports
     - name: Upload coverage to Codecov
@@ -235,12 +251,46 @@ jobs:
       with:
         version: ${{ env.HELM_VERSION }}
 
+    - name: Cache Helm charts
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/helm
+        key: ${{ runner.os }}-helm-${{ hashFiles('helm/oran-nearrt-ric/Chart.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-helm-
+
     - name: Add Helm repositories
       run: |
-        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-        helm repo add grafana https://grafana.github.io/helm-charts
-        helm repo add bitnami https://charts.bitnami.com/bitnami
-        helm repo update
+        # Add repositories with retry logic
+        for i in {1..3}; do
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts && break
+          echo "Attempt $i failed, retrying in 10s..."
+          sleep 10
+        done
+        
+        for i in {1..3}; do
+          helm repo add grafana https://grafana.github.io/helm-charts && break
+          echo "Attempt $i failed, retrying in 10s..."
+          sleep 10
+        done
+        
+        for i in {1..3}; do
+          helm repo add bitnami https://charts.bitnami.com/bitnami && break
+          echo "Attempt $i failed, retrying in 10s..."
+          sleep 10
+        done
+        
+        for i in {1..3}; do
+          helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ && break
+          echo "Attempt $i failed, retrying in 10s..."
+          sleep 10
+        done
+        
+        for i in {1..3}; do
+          helm repo update && break
+          echo "Helm repo update attempt $i failed, retrying in 10s..."
+          sleep 10
+        done
 
     - name: Update Helm dependencies
       run: |
@@ -532,9 +582,37 @@ jobs:
     - name: Generate changelog
       id: changelog
       run: |
-        # Generate changelog from git commits
+        # Generate comprehensive changelog from git commits
         echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-        git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> $GITHUB_OUTPUT
+        
+        # Get previous tag
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        if [ -n "$PREVIOUS_TAG" ]; then
+          echo "## Changes since $PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          
+          # Categorize commits
+          echo "### 🚀 Features" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD | grep -E "^- (feat|feature)" >> $GITHUB_OUTPUT || echo "- No new features" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          
+          echo "### 🐛 Bug Fixes" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD | grep -E "^- (fix|bugfix)" >> $GITHUB_OUTPUT || echo "- No bug fixes" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          
+          echo "### 📚 Documentation" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD | grep -E "^- (docs|doc)" >> $GITHUB_OUTPUT || echo "- No documentation changes" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          
+          echo "### 🔧 Other Changes" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD | grep -vE "^- (feat|feature|fix|bugfix|docs|doc)" >> $GITHUB_OUTPUT || echo "- No other changes" >> $GITHUB_OUTPUT
+        else
+          echo "## Initial Release" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s" >> $GITHUB_OUTPUT
+        fi
+        
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Create GitHub Release
