@@ -476,27 +476,6 @@ func (c *AsyncCoordinatorConfig) Validate() error {
 	return nil
 }
 
-// Enum types for configuration
-type AggregationAlgorithm string
-
-const (
-	AggregationFedAvg    AggregationAlgorithm = "fedavg"
-	AggregationFedAsync  AggregationAlgorithm = "fedasync"
-	AggregationFedProx   AggregationAlgorithm = "fedprox"
-	AggregationSecure    AggregationAlgorithm = "secure"
-	AggregationByzantine AggregationAlgorithm = "byzantine"
-)
-
-type ClientSelectionStrategy string
-
-const (
-	ClientSelectionRandom      ClientSelectionStrategy = "random"
-	ClientSelectionPerformance ClientSelectionStrategy = "performance"
-	ClientSelectionDiversity   ClientSelectionStrategy = "diversity"
-	ClientSelectionAdaptive    ClientSelectionStrategy = "adaptive"
-	ClientSelectionHybrid      ClientSelectionStrategy = "hybrid"
-	ClientSelectionORANOptimal ClientSelectionStrategy = "oran_optimal"
-)
 
 type SchedulingPolicy string
 

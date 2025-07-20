@@ -29,8 +29,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/kubernetes/dashboard/src/app/backend/resource/common"
-	"github.com/kubernetes/dashboard/src/app/backend/resource/dataselect"
 )
 
 // CacheEntry represents a cached resource with metadata
@@ -521,10 +519,8 @@ func (rc *ResourceCache) getResourceVersion(obj interface{}) string {
 		return metaObj.GetResourceVersion()
 	}
 	if runtimeObj, ok := obj.(runtime.Object); ok {
-		if accessor, err := metav1.NewAccessor(); err == nil {
-			if version, err := accessor.ResourceVersion(runtimeObj); err == nil {
-				return version
-			}
+		if gvk := runtimeObj.GetObjectKind().GroupVersionKind(); gvk.Version != "" {
+			return ""
 		}
 	}
 	return ""

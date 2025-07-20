@@ -1,6 +1,6 @@
 module github.com/kubernetes/dashboard
 
-go 1.17
+go 1.21
 
 require (
 	github.com/docker/distribution v2.8.0+incompatible
@@ -23,6 +23,9 @@ require (
 
 require (
 	github.com/google/uuid v1.1.2
+	go.opentelemetry.io/otel v0.20.0
+	go.opentelemetry.io/otel/metric v0.20.0
+	go.opentelemetry.io/otel/trace v0.20.0
 	google.golang.org/grpc v1.40.0
 )
 
