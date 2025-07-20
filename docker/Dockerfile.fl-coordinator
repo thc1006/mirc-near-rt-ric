@@ -1,0 +1,64 @@
+# Dockerfile for Federated Learning Coordinator
+# Security-hardened production image for O-RAN Near-RT RIC FL Coordinator
+
+# Stage 1: Build Go application
+FROM golang:1.22-alpine AS builder
+
+# Install security updates and build dependencies
+RUN apk update && apk upgrade && \
+    apk add --no-cache git ca-certificates tzdata gcc musl-dev && \
+    update-ca-certificates
+
+# Create non-root user for building
+RUN adduser -D -g '' builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY dashboard-master/dashboard-master/go.mod dashboard-master/dashboard-master/go.sum ./
+RUN go mod download && go mod verify
+
+# Copy source code
+COPY dashboard-master/dashboard-master/src/app/backend/federatedlearning/ ./src/app/backend/federatedlearning/
+COPY dashboard-master/dashboard-master/cmd/fl-coordinator/ ./cmd/fl-coordinator/
+
+# Build the FL coordinator with security flags
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -tags netgo -installsuffix netgo \
+    -o fl-coordinator \
+    ./cmd/fl-coordinator/
+
+# Stage 2: Create final runtime image
+FROM scratch
+
+# Copy CA certificates for TLS
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Create non-root user (using numeric IDs for scratch image)
+# UID/GID 65532 is typically used for "nobody" user
+USER 65532:65532
+
+# Copy the binary
+COPY --from=builder /app/fl-coordinator /fl-coordinator
+
+# Create directory structure (scratch doesn't have mkdir, so we'll use COPY)
+# Copy an empty directory structure from builder
+COPY --from=builder --chown=65532:65532 /tmp /tmp
+COPY --from=builder --chown=65532:65532 /var /var
+
+# Health check (note: scratch image doesn't have curl, so we'll use the binary)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD ["/fl-coordinator", "health"]
+
+# Expose ports
+EXPOSE 8080 9091
+
+# Set environment variables
+ENV LOG_LEVEL=info \
+    GRPC_GO_LOG_VERBOSITY_LEVEL=99 \
+    GRPC_GO_LOG_SEVERITY_LEVEL=info
+
+# Run the FL coordinator
+ENTRYPOINT ["/fl-coordinator"]
+CMD ["--config=/etc/fl-coordinator/fl-coordinator.yaml"]

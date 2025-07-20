@@ -17,8 +17,263 @@ package federatedlearning
 import (
 	"context"
 	"crypto/ed25519"
+	"sync"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// RRMTaskType represents the type of RRM task in O-RAN
+type RRMTaskType string
+
+const (
+	RRMTaskResourceAllocation     RRMTaskType = "resource_allocation"
+	RRMTaskTrafficPrediction      RRMTaskType = "traffic_prediction"
+	RRMTaskLoadBalancing          RRMTaskType = "load_balancing"
+	RRMTaskInterferenceManagement RRMTaskType = "interference_management"
+	RRMTaskEnergyOptimization     RRMTaskType = "energy_optimization"
+	RRMTaskQoSOptimization        RRMTaskType = "qos_optimization"
+)
+
+// CoordinatorRole represents the role of the coordinator
+type CoordinatorRole string
+
+const (
+	CoordinatorRoleMaster   CoordinatorRole = "master"
+	CoordinatorRoleRegional CoordinatorRole = "regional"
+	MasterCoordinatorRole   CoordinatorRole = "master"  // Alias for compatibility
+)
+
+// TrainingJob represents a federated learning training job
+type TrainingJob struct {
+	ID                string                    `json:"id"`
+	Name              string                    `json:"name"`
+	ModelID           string                    `json:"model_id"`
+	RRMTask           RRMTaskType              `json:"rrm_task"`
+	TrainingConfig    TrainingConfiguration    `json:"training_config"`
+	AggregationAlg    AggregationAlgorithm     `json:"aggregation_algorithm"`
+	PrivacyMech       PrivacyMechanism         `json:"privacy_mechanism"`
+	PrivacyParams     PrivacyParameters        `json:"privacy_params"`
+	RequiredClients   int                      `json:"required_clients"`
+	MaxRounds         int64                    `json:"max_rounds"`
+	TargetAccuracy    float64                  `json:"target_accuracy"`
+	Status            TrainingStatus           `json:"status"`
+	CurrentRound      int64                    `json:"current_round"`
+	CreatedAt         time.Time                `json:"created_at"`
+	UpdatedAt         time.Time                `json:"updated_at"`
+	StartedAt         *time.Time               `json:"started_at,omitempty"`
+	CompletedAt       *time.Time               `json:"completed_at,omitempty"`
+	ObjectMeta        metav1.ObjectMeta        `json:"metadata,omitempty"`
+}
+
+// TrainingJobSpec represents the specification for creating a training job
+type TrainingJobSpec struct {
+	Name              string                 `json:"name"`
+	ModelID           string                 `json:"model_id"`
+	RRMTask           RRMTaskType           `json:"rrm_task"`
+	TrainingConfig    TrainingConfiguration `json:"training_config"`
+	AggregationAlg    AggregationAlgorithm  `json:"aggregation_algorithm"`
+	PrivacyMech       PrivacyMechanism      `json:"privacy_mechanism"`
+	PrivacyParams     PrivacyParameters     `json:"privacy_params"`
+	RequiredClients   int                   `json:"required_clients"`
+	MaxRounds         int64                 `json:"max_rounds"`
+	TargetAccuracy    float64               `json:"target_accuracy"`
+}
+
+// ClientSelector represents criteria for selecting clients
+type ClientSelector struct {
+	RRMTasks         []RRMTaskType `json:"rrm_tasks,omitempty"`
+	MinTrust         float64       `json:"min_trust,omitempty"`
+	MaxClients       int           `json:"max_clients,omitempty"`
+	MinTrustScore    float64       `json:"min_trust_score,omitempty"`
+	GeographicZone   string        `json:"geographic_zone,omitempty"`
+	MatchRRMTasks    bool          `json:"match_rrm_tasks,omitempty"`
+}
+
+// ResourceRequirements represents resource requirements for training
+type ResourceRequirements struct {
+	CPUCores     int     `json:"cpu_cores"`
+	MemoryGB     int     `json:"memory_gb"`
+	GPUMemoryGB  int     `json:"gpu_memory_gb,omitempty"`
+	NetworkBwMbps int    `json:"network_bw_mbps"`
+}
+
+// Additional type definitions for compilation
+type TrainingMetrics struct {
+	Accuracy    float64 `json:"accuracy"`
+	Loss        float64 `json:"loss"`
+	Convergence float64 `json:"convergence"`
+}
+
+type ValidationResult struct {
+	Accuracy  float64 `json:"accuracy"`
+	Precision float64 `json:"precision"`
+	Recall    float64 `json:"recall"`
+	F1Score   float64 `json:"f1_score"`
+}
+
+type ResourceConstraints struct {
+	MaxCPUCores    int     `json:"max_cpu_cores"`
+	MaxMemoryGB    int     `json:"max_memory_gb"`
+	MaxGPUMemoryGB int     `json:"max_gpu_memory_gb"`
+	MaxBandwidthMbps int   `json:"max_bandwidth_mbps"`
+}
+
+type StrategyConfig struct {
+	Name       string                 `json:"name"`
+	Parameters map[string]interface{} `json:"parameters"`
+}
+
+type ComputeRequirement struct {
+	CPUCores    int `json:"cpu_cores"`
+	MemoryMB    int `json:"memory_mb"`
+	GPUMemoryMB int `json:"gpu_memory_mb"`
+}
+
+type ResourceLimit struct {
+	MaxCPUUtilization    float64 `json:"max_cpu_utilization"`
+	MaxMemoryUtilization float64 `json:"max_memory_utilization"`
+	MaxNetworkBandwidth  int     `json:"max_network_bandwidth"`
+}
+
+type SecurityLevel string
+type PrivacyLevel string  
+type CertificationLevel string
+
+const (
+	SecurityLevelLow    SecurityLevel = "low"
+	SecurityLevelMedium SecurityLevel = "medium"
+	SecurityLevelHigh   SecurityLevel = "high"
+	
+	PrivacyLevelBasic    PrivacyLevel = "basic"
+	PrivacyLevelStandard PrivacyLevel = "standard"
+	PrivacyLevelAdvanced PrivacyLevel = "advanced"
+	
+	CertificationLevelBasic      CertificationLevel = "basic"
+	CertificationLevelStandard   CertificationLevel = "standard"
+	CertificationLevelAdvanced   CertificationLevel = "advanced"
+)
+
+type RRMTaskMetrics struct {
+	TaskType       RRMTaskType `json:"task_type"`
+	PerformanceScore float64   `json:"performance_score"`
+	CompletionRate   float64   `json:"completion_rate"`
+}
+
+type NetworkSliceMetrics struct {
+	SliceID    string  `json:"slice_id"`
+	Latency    float64 `json:"latency"`
+	Throughput float64 `json:"throughput"`
+	PacketLoss float64 `json:"packet_loss"`
+}
+
+type TrendDirection string
+
+const (
+	TrendDirectionUp     TrendDirection = "up"
+	TrendDirectionDown   TrendDirection = "down"
+	TrendDirectionStable TrendDirection = "stable"
+)
+
+type ByzantineDetectionType string
+
+const (
+	ByzantineDetectionStatistical ByzantineDetectionType = "statistical"
+	ByzantineDetectionBehavioral  ByzantineDetectionType = "behavioral"
+	ByzantineDetectionConsensus   ByzantineDetectionType = "consensus"
+)
+
+type ThreatSeverity string
+
+const (
+	ThreatSeverityLow      ThreatSeverity = "low"
+	ThreatSeverityMedium   ThreatSeverity = "medium"
+	ThreatSeverityHigh     ThreatSeverity = "high"
+	ThreatSeverityCritical ThreatSeverity = "critical"
+)
+
+type PerformanceAnomaly struct {
+	MetricType string  `json:"metric_type"`
+	Expected   float64 `json:"expected"`
+	Actual     float64 `json:"actual"`
+	Deviation  float64 `json:"deviation"`
+}
+
+type BehaviorInconsistency struct {
+	ExpectedBehavior string `json:"expected_behavior"`
+	ActualBehavior   string `json:"actual_behavior"`
+	ConfidenceScore  float64 `json:"confidence_score"`
+}
+
+type StatisticalOutlier struct {
+	Value      float64 `json:"value"`
+	Mean       float64 `json:"mean"`
+	StdDev     float64 `json:"std_dev"`
+	ZScore     float64 `json:"z_score"`
+}
+
+type NetworkAnomaly struct {
+	Type        string  `json:"type"`
+	Severity    string  `json:"severity"`
+	Description string  `json:"description"`
+	Confidence  float64 `json:"confidence"`
+}
+
+// gRPC related types for FederatedLearning service
+type FederatedLearning_HandleTrainingServer interface {
+	// gRPC streaming server interface placeholder
+}
+
+type FederatedLearning_HandleTrainingClient interface {
+	// gRPC streaming client interface placeholder  
+}
+
+type TrainingRequest struct {
+	JobID     string `json:"job_id"`
+	ModelData []byte `json:"model_data"`
+}
+
+type TrainingRequest_Registration struct {
+	ClientInfo *FLClient `json:"client_info"`
+}
+
+type TrainingRequest_Update struct {
+	ModelUpdate *ModelUpdate `json:"model_update"`
+}
+
+type TrainingRequest_Heartbeat struct {
+	ClientID  string    `json:"client_id"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type TrainingResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+type SubmitModelUpdateRequest struct {
+	ClientID   string `json:"client_id"`
+	JobID      string `json:"job_id"`
+	ModelUpdate []byte `json:"model_update"`
+}
+
+type SubmitModelUpdateResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+type FederatedLearningClient interface {
+	// gRPC client interface placeholder
+}
+
+type RegionalCoordinatorClient struct {
+	ID       string `json:"id"`
+	Endpoint string `json:"endpoint"`
+}
+
+type FederatedLearningManager interface {
+	// Manager interface placeholder
+}
 
 // ClientStore is an interface for storing and retrieving client information.
 type ClientStore interface {
@@ -162,6 +417,12 @@ type GlobalModel struct {
 // ModelFormat represents the format of a model.
 type ModelFormat string
 
+const (
+	ModelFormatTensorFlow ModelFormat = "tensorflow"
+	ModelFormatPyTorch    ModelFormat = "pytorch"
+	ModelFormatONNX       ModelFormat = "onnx"
+)
+
 // TrainingConfiguration represents the configuration for a training job.
 type TrainingConfiguration struct {
 	BatchSize       int
@@ -194,18 +455,25 @@ type PrivacyParameters struct {
 	Delta   float64
 }
 
-// TrainingStatus represents the status of a training job.
-type TrainingStatus string
+// TrainingStatusPhase represents the phase of a training job.
+type TrainingStatusPhase string
 
 const (
-	TrainingStatusInitializing TrainingStatus = "Initializing"
-	TrainingStatusWaiting      TrainingStatus = "Waiting"
-	TrainingStatusRunning      TrainingStatus = "Running"
-	TrainingStatusAggregating  TrainingStatus = "Aggregating"
-	TrainingStatusCompleted    TrainingStatus = "Completed"
-	TrainingStatusFailed       TrainingStatus = "Failed"
-	TrainingStatusPaused       TrainingStatus = "Paused"
+	TrainingStatusInitializing TrainingStatusPhase = "Initializing"
+	TrainingStatusWaiting      TrainingStatusPhase = "Waiting"
+	TrainingStatusRunning      TrainingStatusPhase = "Running"
+	TrainingStatusAggregating  TrainingStatusPhase = "Aggregating"
+	TrainingStatusCompleted    TrainingStatusPhase = "Completed"
+	TrainingStatusFailed       TrainingStatusPhase = "Failed"
+	TrainingStatusPaused       TrainingStatusPhase = "Paused"
 )
+
+// TrainingStatus represents the status of a training job.
+type TrainingStatus struct {
+	Phase      TrainingStatusPhase `json:"phase"`
+	LastUpdate time.Time           `json:"last_update"`
+	Message    string              `json:"message,omitempty"`
+}
 
 // ModelMetrics represents the metrics of a model.
 type ModelMetrics struct {
@@ -251,17 +519,24 @@ type JobPoolConfig struct {
 
 // JobQueue represents a queue of training jobs.
 type JobQueue struct {
-	jobs    chan *TrainingJob
-	workers chan struct{}
-	wg      sync.WaitGroup
-	ctx     context.Context
+	jobs     chan jobTask
+	workers  chan struct{}
+	wg       sync.WaitGroup
+	ctx      context.Context
+	capacity int
+}
+
+type jobTask struct {
+	job  *TrainingJob
+	task func()
 }
 
 // NewJobQueue creates a new JobQueue.
 func NewJobQueue(maxWorkers int) *JobQueue {
 	return &JobQueue{
-		jobs:    make(chan *TrainingJob),
-		workers: make(chan struct{}, maxWorkers),
+		jobs:     make(chan jobTask),
+		workers:  make(chan struct{}, maxWorkers),
+		capacity: maxWorkers,
 	}
 }
 
@@ -275,16 +550,18 @@ func (q *JobQueue) Start(ctx context.Context) {
 			select {
 			case <-q.ctx.Done():
 				return
-			case job := <-q.jobs:
+			case jobTask := <-q.jobs:
 				q.workers <- struct{}{}
 				q.wg.Add(1)
-				go func(job *TrainingJob) {
+				go func(jt jobTask) {
 					defer func() {
 						<-q.workers
 						q.wg.Done()
 					}()
-					// Execute the job
-				}(job)
+					if jt.task != nil {
+						jt.task()
+					}
+				}(jobTask)
 			}
 		}
 	}()
@@ -292,5 +569,15 @@ func (q *JobQueue) Start(ctx context.Context) {
 
 // Submit submits a job to the queue.
 func (q *JobQueue) Submit(job *TrainingJob, task func()) {
-	q.jobs <- job
+	select {
+	case q.jobs <- jobTask{job: job, task: task}:
+	case <-q.ctx.Done():
+	}
+}
+
+// SetCapacity sets the maximum number of concurrent jobs.
+func (q *JobQueue) SetCapacity(capacity int) {
+	q.capacity = capacity
+	// Note: In a real implementation, you would need to handle 
+	// resizing the workers channel properly
 }

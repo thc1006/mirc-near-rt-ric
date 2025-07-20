@@ -1,0 +1,229 @@
+# Federated Learning Coordinator Deployment for O-RAN Near-RT RIC
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fl-coordinator
+  namespace: oran-nearrt-ric
+  labels:
+    app: fl-coordinator
+    component: federated-learning
+    app.kubernetes.io/name: fl-coordinator
+    app.kubernetes.io/component: fl-coordinator
+    app.kubernetes.io/part-of: oran-nearrt-ric
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fl-coordinator
+  template:
+    metadata:
+      labels:
+        app: fl-coordinator
+        component: federated-learning
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9091"
+    spec:
+      serviceAccountName: fl-coordinator
+      containers:
+      - name: fl-coordinator
+        image: ghcr.io/near-rt-ric/fl-coordinator:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: grpc
+          protocol: TCP
+        - containerPort: 9091
+          name: metrics
+          protocol: TCP
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CONFIG_MAP_NAME
+          value: "fl-coordinator-config"
+        - name: REDIS_HOST
+          value: "redis"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: LOG_LEVEL
+          value: "info"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        volumeMounts:
+        - name: config
+          mountPath: /etc/fl-coordinator
+          readOnly: true
+        - name: models
+          mountPath: /data/models
+        - name: logs
+          mountPath: /var/log
+      volumes:
+      - name: config
+        configMap:
+          name: fl-coordinator-config
+      - name: models
+        persistentVolumeClaim:
+          claimName: fl-models-pvc
+      - name: logs
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - fl-coordinator
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fl-coordinator
+  namespace: oran-nearrt-ric
+  labels:
+    app: fl-coordinator
+    component: federated-learning
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: grpc
+  - port: 9091
+    targetPort: 9091
+    protocol: TCP
+    name: metrics
+  selector:
+    app: fl-coordinator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fl-coordinator
+  namespace: oran-nearrt-ric
+  labels:
+    app: fl-coordinator
+    component: federated-learning
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fl-coordinator
+  labels:
+    app: fl-coordinator
+    component: federated-learning
+rules:
+- apiGroups: [""]
+  resources: ["services", "endpoints", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fl-coordinator
+  labels:
+    app: fl-coordinator
+    component: federated-learning
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fl-coordinator
+subjects:
+- kind: ServiceAccount
+  name: fl-coordinator
+  namespace: oran-nearrt-ric
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fl-coordinator-config
+  namespace: oran-nearrt-ric
+  labels:
+    app: fl-coordinator
+    component: federated-learning
+data:
+  fl-coordinator.yaml: |
+    # Network configuration
+    listen_address: "0.0.0.0:8080"
+    tls_enabled: false
+    certificate_path: "/etc/certs/tls.crt"
+    private_key_path: "/etc/certs/tls.key"
+    role: "regional"
+    master_endpoint: "fl-coordinator-master:8080"
+
+    # Training configuration
+    max_concurrent_jobs: 5
+    default_timeout: 300s
+    heartbeat_interval: 30s
+    client_timeout: 120s
+
+    # Security configuration
+    require_mutual_tls: false
+    trust_score_threshold: 0.5
+    max_failed_attempts: 3
+
+    # Privacy configuration
+    default_privacy_budget: 1.0
+    enforce_privacy: true
+
+    # Resource limits
+    max_model_size_bytes: 104857600
+    max_clients_per_job: 50
+    aggregation_window: 60s
+    min_participation_ratio: 0.6
+    staleness_threshold: 300s
+
+    # O-RAN specific configuration
+    e2_latency_threshold_ms: 10.0
+    min_spectrum_efficiency: 0.8
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fl-models-pvc
+  namespace: oran-nearrt-ric
+  labels:
+    app: fl-coordinator
+    component: federated-learning
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard

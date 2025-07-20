@@ -800,16 +800,4 @@ func (s *FedAvgStrategy) sequentialAggregate(models []*ModelUpdate, weights []fl
 // Additional helper methods would be implemented here...
 // Including computeQualityFactor, computeLatencyFactor, getRRMTaskWeight, etc.
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}*/
+// max and min functions are defined in auto_scaling.go*/

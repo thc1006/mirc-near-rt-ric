@@ -1,0 +1,395 @@
+# CI/CD Pipeline for O-RAN Near-RT RIC Platform
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run nightly builds at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  GO_VERSION: '1.22'
+  NODE_VERSION: '18'
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: near-rt-ric
+
+jobs:
+  # Security and dependency scanning
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Gosec Security Scanner
+        uses: securecodewarrior/github-action-gosec@master
+        with:
+          args: '-fmt sarif -out gosec.sarif ./...'
+
+  # Backend (Go) build and test
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./dashboard-master/dashboard-master
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run staticcheck
+        uses: dominikh/staticcheck-action@v1.3.0
+        with:
+          version: "2023.1.6"
+          install-go: false
+          working-directory: ./dashboard-master/dashboard-master
+
+      - name: Run tests
+        run: |
+          go test -v -race -coverprofile=coverage.out ./...
+          go tool cover -html=coverage.out -o coverage.html
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./dashboard-master/dashboard-master/coverage.out
+          flags: backend
+
+      - name: Build backend
+        run: make build-backend
+
+  # Frontend (Angular) build and test
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: ['dashboard-master/dashboard-master', 'xAPP_dashboard-master']
+    
+    defaults:
+      run:
+        working-directory: ./${{ matrix.component }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.component }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm run test:ci
+
+      - name: Build application
+        run: npm run build:prod
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.component }}-dist
+          path: ${{ matrix.component }}/dist/
+          retention-days: 1
+
+  # Docker image build and security scan
+  docker-build:
+    name: Docker Build & Scan
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-test]
+    strategy:
+      matrix:
+        component: ['dashboard', 'fl-coordinator', 'xapp-dashboard']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/${{ matrix.component }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.${{ matrix.component }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner on image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/${{ matrix.component }}:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+
+  # Kubernetes manifest validation
+  k8s-validation:
+    name: Kubernetes Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Validate Kubernetes manifests
+        run: |
+          # Validate YAML syntax
+          find k8s/ -name "*.yaml" -o -name "*.yml" | xargs -I {} kubectl apply --dry-run=client -f {}
+          
+          # Run kubeval for additional validation
+          curl -L https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz | tar xz
+          chmod +x kubeval
+          find k8s/ -name "*.yaml" -o -name "*.yml" | xargs ./kubeval
+
+      - name: Lint Helm charts
+        run: |
+          curl https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz | tar xz
+          sudo mv linux-amd64/helm /usr/local/bin/
+          if [ -d "helm/" ]; then
+            helm lint helm/*/
+          fi
+
+  # End-to-end testing
+  e2e-test:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Kind cluster
+        uses: helm/kind-action@v1.8.0
+        with:
+          cluster_name: oran-test
+          config: .github/kind-config.yaml
+
+      - name: Load Docker images into Kind
+        run: |
+          docker pull ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/dashboard:${{ github.sha }}
+          docker pull ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/fl-coordinator:${{ github.sha }}
+          kind load docker-image ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/dashboard:${{ github.sha }} --name oran-test
+          kind load docker-image ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/fl-coordinator:${{ github.sha }} --name oran-test
+
+      - name: Deploy to Kind cluster
+        run: |
+          kubectl create namespace oran-nearrt-ric
+          kubectl apply -f k8s/
+          kubectl wait --for=condition=available --timeout=300s deployment/dashboard -n oran-nearrt-ric
+          kubectl wait --for=condition=available --timeout=300s deployment/fl-coordinator -n oran-nearrt-ric
+
+      - name: Run E2E tests
+        run: |
+          # Install test dependencies
+          npm install -g cypress
+          
+          # Run Cypress E2E tests
+          if [ -d "e2e/" ]; then
+            cypress run --config baseUrl=http://localhost:8080
+          fi
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          kubectl logs -l app=dashboard -n oran-nearrt-ric
+          kubectl logs -l app=fl-coordinator -n oran-nearrt-ric
+          kubectl describe pods -n oran-nearrt-ric
+
+  # Performance testing
+  performance-test:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [e2e-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up K6
+        run: |
+          sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Run performance tests
+        run: |
+          if [ -d "performance/" ]; then
+            k6 run performance/load-test.js
+          fi
+
+  # Release and deployment
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [security-scan, backend-test, frontend-test, k8s-validation]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Generate changelog since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"* %s (%h)" --no-merges)
+          else
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"* %s (%h)" --no-merges)
+          fi
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release v${{ github.run_number }}
+          body: |
+            ## Changes in this Release
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ## Docker Images
+            - `${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/dashboard:${{ github.sha }}`
+            - `${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/fl-coordinator:${{ github.sha }}`
+            - `${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/xapp-dashboard:${{ github.sha }}`
+          draft: false
+          prerelease: false
+
+  # Deployment to staging/production
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [release]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+
+      - name: Deploy to production
+        run: |
+          kubectl set image deployment/dashboard dashboard=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/dashboard:${{ github.sha }} -n oran-nearrt-ric
+          kubectl set image deployment/fl-coordinator fl-coordinator=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/fl-coordinator:${{ github.sha }} -n oran-nearrt-ric
+          kubectl rollout status deployment/dashboard -n oran-nearrt-ric
+          kubectl rollout status deployment/fl-coordinator -n oran-nearrt-ric
+
+      - name: Run smoke tests
+        run: |
+          # Wait for deployments to be ready
+          kubectl wait --for=condition=available --timeout=300s deployment/dashboard -n oran-nearrt-ric
+          kubectl wait --for=condition=available --timeout=300s deployment/fl-coordinator -n oran-nearrt-ric
+          
+          # Run basic health checks
+          kubectl exec -n oran-nearrt-ric deployment/dashboard -- curl -f http://localhost:8080/health
+          kubectl exec -n oran-nearrt-ric deployment/fl-coordinator -- curl -f http://localhost:8080/health
+
+      - name: Notify deployment status
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: '#deployments'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}

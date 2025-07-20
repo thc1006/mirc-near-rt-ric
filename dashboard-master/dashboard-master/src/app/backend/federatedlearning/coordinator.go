@@ -17,11 +17,13 @@ package federatedlearning
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"math/rand"
+	"sort"
 	"sync"
 	"time"
 
@@ -123,109 +125,7 @@ type CoordinatorConfig struct {
 	MinSpectrumEfficiency float64     `yaml:"min_spectrum_efficiency"`
 }
 
-// ConfigManager manages the dynamic configuration for the FLCoordinator
-type ConfigManager struct {
-	logger        *slog.Logger
-	kubeClient    kubernetes.Interface
-	namespace     string
-	configMapName string
-
-	config      *CoordinatorConfig
-	configMutex sync.RWMutex
-
-	updateChan chan<- *CoordinatorConfig
-	stopCh     chan struct{}
-}
-
-// NewConfigManager creates a new configuration manager.
-func NewConfigManager(logger *slog.Logger, kubeClient kubernetes.Interface, namespace, configMapName string, updateChan chan<- *CoordinatorConfig) (*ConfigManager, error) {
-	cm := &ConfigManager{
-		logger:        logger,
-		kubeClient:    kubeClient,
-		namespace:     namespace,
-		configMapName: configMapName,
-		updateChan:    updateChan,
-		stopCh:        make(chan struct{}),
-	}
-
-	initialConfig, err := cm.loadConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load initial config: %w", err)
-	}
-	cm.config = initialConfig
-
-	go cm.watchConfigChanges()
-
-	return cm, nil
-}
-
-// GetConfig returns the current configuration safely.
-func (cm *ConfigManager) GetConfig() *CoordinatorConfig {
-	cm.configMutex.RLock()
-	defer cm.configMutex.RUnlock()
-	return cm.config
-}
-
-// loadConfig loads the configuration from the Kubernetes ConfigMap.
-func (cm *ConfigManager) loadConfig() (*CoordinatorConfig, error) {
-	cm.logger.Info("Loading configuration from ConfigMap", "namespace", cm.namespace, "name", cm.configMapName)
-	configMap, err := cm.kubeClient.CoreV1().ConfigMaps(cm.namespace).Get(context.TODO(), cm.configMapName, metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ConfigMap %s/%s: %w", cm.namespace, cm.configMapName, err)
-	}
-
-	configData, ok := configMap.Data["fl-coordinator.yaml"]
-	if !ok {
-		return nil, fmt.Errorf("ConfigMap %s/%s does not contain key 'fl-coordinator.yaml'", cm.namespace, cm.configMapName)
-	}
-
-	var config CoordinatorConfig
-	if err := yaml.Unmarshal([]byte(configData), &config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config data: %w", err)
-	}
-
-	cm.logger.Info("Successfully loaded configuration")
-	return &config, nil
-}
-
-// watchConfigChanges sets up a watcher to monitor the ConfigMap for changes.
-func (cm *ConfigManager) watchConfigChanges() {
-	factory := informers.NewSharedInformerFactoryWithOptions(cm.kubeClient, 0, informers.WithNamespace(cm.namespace))
-	informer := factory.Core().V1().ConfigMaps().Informer()
-
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			newCM, ok := newObj.(*corev1.ConfigMap)
-			if !ok {
-				cm.logger.Error("Failed to cast new object to ConfigMap")
-				return
-			}
-			if newCM.Name == cm.configMapName {
-				cm.logger.Info("ConfigMap updated, reloading configuration")
-				newConfig, err := cm.loadConfig()
-				if err != nil {
-					cm.logger.Error("Failed to reload configuration", "error", err)
-					return
-				}
-
-				cm.configMutex.Lock()
-				cm.config = newConfig
-				cm.configMutex.Unlock()
-
-				// Notify the coordinator of the update
-				cm.updateChan <- newConfig
-			}
-		},
-	})
-
-	factory.Start(cm.stopCh)
-	<-cm.stopCh
-}
-
-// Stop stops the config watcher.
-func (cm *ConfigManager) Stop() {
-	close(cm.stopCh)
-}
+// ConfigManager is defined in config.go
 
 // ActiveTrainingJob represents an active federated learning training job
 type ActiveTrainingJob struct {
@@ -384,7 +284,8 @@ func (c *FLCoordinator) startBackgroundServices() {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		ticker := time.NewTicker(c.config.CoordinatorConfig.HeartbeatInterval * 2)
+		config := c.configManager.GetConfig()
+		ticker := time.NewTicker(config.HeartbeatInterval * 2)
 		defer ticker.Stop()
 		for {
 			select {
@@ -414,8 +315,9 @@ func (c *FLCoordinator) cleanupInactiveClients() {
 		return
 	}
 
+	config := c.configManager.GetConfig()
 	for _, client := range clients {
-		if time.Since(client.LastHeartbeat) > c.config.MaxInactiveTime {
+		if time.Since(client.LastHeartbeat) > config.DefaultTimeout {
 			c.logger.Info("Unregistering inactive client", slog.String("client_id", client.ID))
 			if err := c.UnregisterClient(c.ctx, client.ID); err != nil {
 				c.logger.Error("Failed to unregister inactive client",
@@ -465,7 +367,7 @@ func (c *FLCoordinator) matchesSelector(client *FLClient, selector ClientSelecto
 	if selector.GeographicZone != "" && client.Metadata["geographic_zone"] != selector.GeographicZone {
 		return false
 	}
-	for _, task := range selector.MatchRRMTasks {
+	for _, task := range selector.RRMTasks {
 		found := false
 		for _, clientTask := range client.RRMTasks {
 			if clientTask == task {
@@ -544,7 +446,7 @@ func (c *FLCoordinator) getOrCreateGlobalModel(ctx context.Context, modelID stri
 		},
 		MaxRounds:      10,
 		TargetAccuracy: 0.9,
-		Status:         TrainingStatusInitializing,
+		Status:         TrainingStatus{Phase: TrainingStatusInitializing, LastUpdate: time.Now()},
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
@@ -602,7 +504,7 @@ func (c *FLCoordinator) orchestrateTraining(ctx context.Context, activeJob *Acti
 
 	activeJob.Status = TrainingStatusRunning
 	activeJob.Job.Status.Phase = TrainingStatusRunning
-	activeJob.Job.Status.LastUpdate = metav1.Now()
+	activeJob.Job.Status.LastUpdate = time.Now()
 
 	if c.role == MasterCoordinatorRole {
 		c.orchestrateMaster(ctx, activeJob)
@@ -676,7 +578,8 @@ func (c *FLCoordinator) registerWithMaster(ctx context.Context) error {
 	}
 
 	// Connect to master coordinator
-	conn, err := grpc.Dial(c.config.CoordinatorConfig.MasterEndpoint, grpc.WithInsecure())
+	config := c.configManager.GetConfig()
+	conn, err := grpc.Dial(config.MasterEndpoint, grpc.WithInsecure())
 	if err != nil {
 		return fmt.Errorf("failed to connect to master coordinator: %w", err)
 	}
@@ -690,7 +593,7 @@ func (c *FLCoordinator) registerWithMaster(ctx context.Context) error {
 	}
 
 	if err := stream.Send(&TrainingRequest{Request: &TrainingRequest_Registration{Registration: &ClientRegistration{
-		Endpoint: c.config.CoordinatorConfig.ListenAddress,
+		Endpoint: config.ListenAddress,
 	}}}); err != nil {
 		return fmt.Errorf("failed to send registration to master coordinator: %w", err)
 	}
@@ -1175,7 +1078,7 @@ func (c *FLCoordinator) RegisterClient(ctx context.Context, client *FLClient) er
 	
 	// Generate cryptographic keys if not provided
 	if client.PublicKey == nil {
-		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+		publicKey, privateKey, err := ed25519.GenerateKey(cryptorand.Reader)
 		if err != nil {
 			return errors.NewInternal(fmt.Sprintf("failed to generate keys: %v", err))
 		}
@@ -1548,4 +1451,11 @@ func (c *FLCoordinator) HandleTraining(stream FederatedLearning_HandleTrainingSe
 			// Handle heartbeat
 		}
 	}
+}
+
+// discoverRegionalCoordinators discovers other regional coordinators in the cluster
+func (c *FLCoordinator) discoverRegionalCoordinators(ctx context.Context) ([]*RegionalCoordinatorClient, error) {
+	// Placeholder implementation - in a real implementation this would discover
+	// other FL coordinators in the cluster
+	return []*RegionalCoordinatorClient{}, nil
 }

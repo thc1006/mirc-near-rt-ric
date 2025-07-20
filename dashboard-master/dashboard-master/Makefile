@@ -16,6 +16,7 @@ MIN_GO_MAJOR_VERSION = 1
 MIN_GO_MINOR_VERSION = 17
 GO_BINARY := $(shell which go)
 MAIN_PACKAGE = github.com/kubernetes/dashboard/src/app/backend
+FL_COORDINATOR_PACKAGE = github.com/hctsai1006/near-rt-ric/dashboard-master/cmd/fl-coordinator
 KUBECONFIG ?= $(HOME)/.kube/config
 SIDECAR_HOST ?= http://localhost:8000
 TOKEN_TTL ?= 900
@@ -27,8 +28,10 @@ ENABLE_SKIP_LOGIN ?= false
 SYSTEM_BANNER ?= "Local test environment"
 SYSTEM_BANNER_SEVERITY ?= INFO
 PROD_BINARY = dist/amd64/dashboard
+FL_COORDINATOR_PROD_BINARY = dist/amd64/fl-coordinator
 SERVE_DIRECTORY = .tmp/serve
 SERVE_BINARY = .tmp/serve/dashboard
+FL_COORDINATOR_SERVE_BINARY = .tmp/serve/fl-coordinator
 RELEASE_IMAGE = kubernetesui/dashboard
 RELEASE_VERSION = v2.5.1
 RELEASE_IMAGE_NAMES += $(foreach arch, $(ARCHITECTURES), $(RELEASE_IMAGE)-$(arch):$(RELEASE_VERSION))
@@ -81,6 +84,10 @@ clean:
 build-backend: ensure-go
 	CGO_ENABLED=0 go build -ldflags "-X $(MAIN_PACKAGE)/client.Version=$(RELEASE_VERSION)" -gcflags="all=-N -l" -o $(SERVE_BINARY) $(MAIN_PACKAGE)
 
+.PHONY: build-fl-coordinator
+build-fl-coordinator: ensure-go
+	CGO_ENABLED=0 go build -gcflags="all=-N -l" -o $(FL_COORDINATOR_SERVE_BINARY) $(FL_COORDINATOR_PACKAGE)
+
 .PHONY: build
 build: clean ensure-go
 	./aio/scripts/build.sh
@@ -111,6 +118,10 @@ watch-backend: ensure-air
 .PHONY: prod-backend
 prod-backend: clean ensure-go
 	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags "-X $(MAIN_PACKAGE)/client.Version=$(RELEASE_VERSION)" -o $(PROD_BINARY) $(MAIN_PACKAGE)
+
+.PHONY: prod-fl-coordinator
+prod-fl-coordinator: clean ensure-go
+	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o $(FL_COORDINATOR_PROD_BINARY) $(FL_COORDINATOR_PACKAGE)
 
 .PHONY: prod-backend-cross
 prod-backend-cross: clean ensure-go
