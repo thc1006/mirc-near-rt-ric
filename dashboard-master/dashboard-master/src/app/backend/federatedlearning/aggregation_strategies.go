@@ -619,6 +619,41 @@ func (s *FedAvgStrategy) GetStrategy() AggregationAlgorithm {
 	return AggregationFedAvg
 }
 
+// Aggregate performs Byzantine fault-tolerant aggregation.
+func (s *ByzantineFTStrategy) Aggregate(ctx context.Context, updates []*ModelUpdate) (*GlobalModel, error) {
+	// 1. Anomaly Detection
+	// TODO: Convert model updates to a format suitable for anomaly detection.
+	// anomalousUpdates, err := s.anomalyDetector.DetectAnomalies(updates)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// 2. Robust Aggregation
+	var aggregatedParams []float64
+	// TODO: Convert model updates to a slice of float64 slices.
+	var updatesAsFloat [][]float64
+	if s.config.Krum {
+		// aggregatedParams, err = s.Krum(updatesAsFloat, 5)
+	} else if s.config.TrimmedMean {
+		// aggregatedParams, err = s.TrimmedMean(updatesAsFloat, s.config.TrimmedMeanP)
+	} else {
+		// Default to FedAvg if no robust aggregation method is specified.
+		// aggregatedParams = average(updatesAsFloat)
+	}
+
+	// 3. Client Reputation Update
+	// TODO: Update client reputations based on their contributions.
+
+	// 4. Incident Reporting
+	// TODO: Report any detected anomalies to the O1 interface.
+
+	// Create a new global model with the aggregated parameters.
+	return &GlobalModel{
+		// Parameters: aggregatedParams,
+	}, nil
+}
+
+
 // GetConfiguration returns the current strategy configuration
 func (s *FedAvgStrategy) GetConfiguration() *StrategyConfig {
 	s.mutex.RLock()

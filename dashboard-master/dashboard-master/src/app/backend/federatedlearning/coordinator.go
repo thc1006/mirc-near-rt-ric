@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -38,45 +39,47 @@ import (
 // and serves as the central coordinator for federated learning in the O-RAN Near-RT RIC
 type FLCoordinator struct {
 	// Core dependencies
-	logger          *slog.Logger
-	kubeClient      kubernetes.Interface
-	
+	logger     *slog.Logger
+	kubeClient kubernetes.Interface
+	role       CoordinatorRole
+
 	// Storage and persistence
-	clientStore     ClientStore
-	modelStore      ModelStore
-	metricsStore    MetricsStore
-	
+	redisClient *redis.Client
+	clientStore ClientStore
+	modelStore  ModelStore
+
 	// Security and privacy
-	cryptoEngine    CryptoEngine
-	privacyEngine   PrivacyEngine
-	trustManager    TrustManager
-	
+	cryptoEngine  CryptoEngine
+	privacyEngine PrivacyEngine
+	trustManager  TrustManager
+
 	// Training coordination
 	trainingOrchestrator TrainingOrchestrator
 	aggregationEngine    AggregationEngine
-	
+
 	// Communication
-	grpcServer      *grpc.Server
+	grpcServer        *grpc.Server
 	clientConnections map[string]*grpc.ClientConn
-	connMutex       sync.RWMutex
-	
+	connMutex         sync.RWMutex
+
 	// Configuration and state
-	config          CoordinatorConfig
-	activeJobs      map[string]*ActiveTrainingJob
-	jobsMutex       sync.RWMutex
-	
+	config     AsyncCoordinatorConfig
+	activeJobs map[string]*ActiveTrainingJob
+	jobsMutex  sync.RWMutex
+	jobQueue   *JobQueue
+
 	// Monitoring and observability
 	metricsCollector MetricsCollector
 	alertManager     AlertManager
-	
+
 	// Resource management
 	resourceManager  ResourceManager
 	schedulingEngine SchedulingEngine
-	
+
 	// Shutdown coordination
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // CoordinatorConfig defines configuration for the FL coordinator
@@ -86,26 +89,31 @@ type CoordinatorConfig struct {
 	TLSEnabled          bool          `yaml:"tls_enabled"`
 	CertificatePath     string        `yaml:"certificate_path"`
 	PrivateKeyPath      string        `yaml:"private_key_path"`
-	
+	Role                CoordinatorRole `yaml:"role"`
+	MasterEndpoint      string        `yaml:"master_endpoint"`
+
 	// Training configuration
 	MaxConcurrentJobs   int           `yaml:"max_concurrent_jobs"`
 	DefaultTimeout      time.Duration `yaml:"default_timeout"`
 	HeartbeatInterval   time.Duration `yaml:"heartbeat_interval"`
 	ClientTimeout       time.Duration `yaml:"client_timeout"`
-	
+
 	// Security configuration
 	RequireMutualTLS    bool          `yaml:"require_mutual_tls"`
 	TrustScoreThreshold float64       `yaml:"trust_score_threshold"`
 	MaxFailedAttempts   int           `yaml:"max_failed_attempts"`
-	
+
 	// Privacy configuration
 	DefaultPrivacyBudget float64      `yaml:"default_privacy_budget"`
 	EnforcePrivacy      bool          `yaml:"enforce_privacy"`
-	
+
 	// Resource limits
 	MaxModelSize        int64         `yaml:"max_model_size_bytes"`
 	MaxClientsPerJob    int           `yaml:"max_clients_per_job"`
-	
+	AggregationWindow   time.Duration `yaml:"aggregation_window"`
+	MinParticipationRatio float64       `yaml:"min_participation_ratio"`
+	StalenessThreshold  time.Duration `yaml:"staleness_threshold"`
+
 	// RRM-specific configuration
 	E2LatencyThreshold  float64       `yaml:"e2_latency_threshold_ms"`
 	MinSpectrumEfficiency float64     `yaml:"min_spectrum_efficiency"`
@@ -122,15 +130,19 @@ type ActiveTrainingJob struct {
 	FailedRounds     int64
 	Status           TrainingStatus
 	ErrorCount       int
-	
+
 	// Synchronization
 	roundMutex       sync.RWMutex
 	participantMutex sync.RWMutex
-	
+	stalenessScores  map[string]float64
+	updateTimestamps map[string]time.Time
+
 	// Communication channels
 	modelUpdates     chan ModelUpdate
 	statusUpdates    chan TrainingStatusUpdate
 	errorChan        chan error
+	aggregationTrigger chan struct{}
+	collectedUpdates map[string]ModelUpdate
 }
 
 // TrainingStatusUpdate represents a status update for a training job
@@ -146,21 +158,22 @@ type TrainingStatusUpdate struct {
 func NewFLCoordinator(
 	logger *slog.Logger,
 	kubeClient kubernetes.Interface,
-	config CoordinatorConfig,
+	config AsyncCoordinatorConfig,
+	redisClient *redis.Client,
 ) (*FLCoordinator, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	coordinator := &FLCoordinator{
 		logger:            logger,
 		kubeClient:        kubeClient,
+		role:              config.CoordinatorConfig.Role,
+		redisClient:       redisClient,
 		config:            config,
 		clientConnections: make(map[string]*grpc.ClientConn),
 		activeJobs:        make(map[string]*ActiveTrainingJob),
+		jobQueue:          NewJobQueue(config.JobPoolConfig.MaxConcurrentJobs),
 		ctx:               ctx,
 		cancel:            cancel,
-		clientStore:       *NewClientStore(), // Initialize in-memory client store
-		modelStore:        *NewModelStore(),  // Initialize in-memory model store
-		metricsStore:      *NewMetricsStore(), // Initialize in-memory metrics store
 		cryptoEngine:      &mockCryptoEngine{logger: logger},
 		privacyEngine:     &mockPrivacyEngine{logger: logger},
 		trustManager:      &mockTrustManager{logger: logger},
@@ -171,73 +184,63 @@ func NewFLCoordinator(
 		resourceManager:      &mockResourceManager{logger: logger},
 		schedulingEngine:     &mockSchedulingEngine{logger: logger},
 	}
-	
-	// Initialize storage backends
+
 	if err := coordinator.initializeStorage(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}
-	
-	// Initialize security components
 	if err := coordinator.initializeSecurity(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to initialize security: %w", err)
 	}
-	
-	// Initialize training components
 	if err := coordinator.initializeTraining(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to initialize training: %w", err)
 	}
-	
-	// Initialize monitoring
 	if err := coordinator.initializeMonitoring(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
-	
-	// Start background services
+
 	coordinator.startBackgroundServices()
-	
+
 	return coordinator, nil
 }
 
 // initializeStorage initializes the storage backends.
 func (c *FLCoordinator) initializeStorage() error {
-	c.logger.Info("Initializing in-memory storage for FL coordinator")
-	// In-memory stores are already initialized in NewFLCoordinator
+	c.logger.Info("Initializing Redis-based storage for FL coordinator")
+	c.clientStore = NewRedisClientStore(c.redisClient)
+	c.modelStore = NewRedisModelStore(c.redisClient)
 	return nil
 }
+
 
 // initializeSecurity initializes security components.
 func (c *FLCoordinator) initializeSecurity() error {
 	c.logger.Info("Initializing mock security components")
-	// Placeholder for actual security setup (e.g., loading TLS certs, key management)
 	return nil
 }
 
 // initializeTraining initializes training-related components.
 func (c *FLCoordinator) initializeTraining() error {
 	c.logger.Info("Initializing mock training components")
-	// Placeholder for actual training orchestration and aggregation setup
 	return nil
 }
 
 // initializeMonitoring initializes monitoring and observability components.
 func (c *FLCoordinator) initializeMonitoring() error {
 	c.logger.Info("Initializing mock monitoring components")
-	// Placeholder for actual metrics collection and alerting setup
 	return nil
 }
 
 // startBackgroundServices starts any necessary background goroutines.
 func (c *FLCoordinator) startBackgroundServices() {
 	c.logger.Info("Starting FL coordinator background services")
-	// Example: Goroutine for cleaning up inactive clients
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		ticker := time.NewTicker(c.config.HeartbeatInterval * 2) // Check every twice heartbeat interval
+		ticker := time.NewTicker(c.config.CoordinatorConfig.HeartbeatInterval * 2)
 		defer ticker.Stop()
 		for {
 			select {
@@ -250,15 +253,11 @@ func (c *FLCoordinator) startBackgroundServices() {
 		}
 	}()
 
-	// Example: Goroutine for processing model updates (if async)
+	// Start job queue processing
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		// This would typically listen on a channel for model updates
-		// and trigger aggregation logic. For now, it's a placeholder.
-		c.logger.Info("Background model update processing service started (placeholder)")
-		<-c.ctx.Done() // Keep running until context is cancelled
-		c.logger.Info("Background model update processing service stopped")
+		c.jobQueue.Start(c.ctx)
 	}()
 }
 
@@ -452,159 +451,334 @@ func (c *FLCoordinator) selectClientsForTraining(ctx context.Context, selector C
 	return selectedClients, nil
 }
 
-// orchestrateTraining manages the lifecycle of a single federated learning training job.
 func (c *FLCoordinator) orchestrateTraining(ctx context.Context, activeJob *ActiveTrainingJob) {
 	defer c.wg.Done()
 	jobID := activeJob.Job.Name
 	c.logger.Info("Starting training orchestration for job", slog.String("job_id", jobID))
 
-	// Update job status to running
 	activeJob.Status = TrainingStatusRunning
 	activeJob.Job.Status.Phase = TrainingStatusRunning
 	activeJob.Job.Status.LastUpdate = metav1.Now()
-	// Persist job status update (optional, for in-memory store it's already updated)
 
-	// Main training loop
+	if c.role == MasterCoordinatorRole {
+		c.orchestrateMaster(ctx, activeJob)
+	} else {
+		c.orchestrateRegional(ctx, activeJob)
+	}
+}
+
+func (c *FLCoordinator) orchestrateMaster(ctx context.Context, activeJob *ActiveTrainingJob) {
+	// 1. Discover regional coordinators
+	regionalCoordinators, err := c.discoverRegionalCoordinators(ctx)
+	if err != nil {
+		c.logger.Error("Failed to discover regional coordinators", slog.String("error", err.Error()))
+		return
+	}
+
+	// 2. Distribute training job to regional coordinators
+	var wg sync.WaitGroup
+	for _, regionalCoordinator := range regionalCoordinators {
+		wg.Add(1)
+		go func(regionalCoordinator *RegionalCoordinatorClient) {
+			defer wg.Done()
+			// Connect to regional coordinator
+			conn, err := grpc.Dial(regionalCoordinator.Endpoint, grpc.WithInsecure())
+			if err != nil {
+				c.logger.Error("Failed to connect to regional coordinator", slog.String("endpoint", regionalCoordinator.Endpoint), slog.String("error", err.Error()))
+				return
+			}
+			defer conn.Close()
+			client := NewFederatedLearningClient(conn)
+
+			// Start training on regional coordinator
+			stream, err := client.HandleTraining(ctx)
+			if err != nil {
+				c.logger.Error("Failed to start training on regional coordinator", slog.String("endpoint", regionalCoordinator.Endpoint), slog.String("error", err.Error()))
+				return
+			}
+
+			// Send training job to regional coordinator
+			if err := stream.Send(&TrainingRequest{Request: &TrainingRequest_Registration{Registration: &ClientRegistration{
+				XappName: activeJob.Job.Spec.RRMTask,
+			}}}); err != nil {
+				c.logger.Error("Failed to send training job to regional coordinator", slog.String("endpoint", regionalCoordinator.Endpoint), slog.String("error", err.Error()))
+				return
+			}
+
+			// Wait for response from regional coordinator
+			for {
+				resp, err := stream.Recv()
+				if err != nil {
+					c.logger.Error("Failed to receive response from regional coordinator", slog.String("endpoint", regionalCoordinator.Endpoint), slog.String("error", err.Error()))
+					return
+				}
+				// Process response
+				switch resp.Response.(type) {
+				case *TrainingResponse_Result:
+					// Handle result
+				}
+			}
+		}(regionalCoordinator)
+	}
+	wg.Wait()
+
+	// 3. Aggregate results from regional coordinators
+	// TODO: Implement aggregation logic
+}
+
+func (c *FLCoordinator) registerWithMaster(ctx context.Context) error {
+	if c.role != RegionalCoordinatorRole {
+		return nil
+	}
+
+	// Connect to master coordinator
+	conn, err := grpc.Dial(c.config.CoordinatorConfig.MasterEndpoint, grpc.WithInsecure())
+	if err != nil {
+		return fmt.Errorf("failed to connect to master coordinator: %w", err)
+	}
+	defer conn.Close()
+	client := NewFederatedLearningClient(conn)
+
+	// Register with master coordinator
+	stream, err := client.HandleTraining(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to register with master coordinator: %w", err)
+	}
+
+	if err := stream.Send(&TrainingRequest{Request: &TrainingRequest_Registration{Registration: &ClientRegistration{
+		Endpoint: c.config.CoordinatorConfig.ListenAddress,
+	}}}); err != nil {
+		return fmt.Errorf("failed to send registration to master coordinator: %w", err)
+	}
+
+	return nil
+}
+
+func (c *FLCoordinator) orchestrateRegional(ctx context.Context, activeJob *ActiveTrainingJob) {
+	// Regional coordinator logic (similar to the original orchestrateTraining)
 	for round := activeJob.CompletedRounds + 1; round <= activeJob.Job.Spec.TrainingConfig.MaxRounds; round++ {
 		select {
 		case <-ctx.Done():
-			c.logger.Info("Training orchestration cancelled for job", slog.String("job_id", jobID))
+			c.logger.Info("Training orchestration cancelled for job", slog.String("job_id", activeJob.Job.Name))
 			activeJob.Status = TrainingStatusPaused
 			activeJob.Job.Status.Phase = TrainingStatusPaused
 			activeJob.Job.Status.LastUpdate = metav1.Now()
 			return
 		default:
-			c.logger.Info("Starting new training round",
-				slog.String("job_id", jobID), slog.Int64("round", round))
+			c.logger.Info("Starting new training round", slog.String("job_id", activeJob.Job.Name), slog.Int64("round", round))
+			activeJob.RoundStartTime = time.Now()
 
-			// 1. Distribute global model to participants
-			// In a real system, this would involve gRPC calls to xApps
-			c.logger.Debug("Distributing model to clients (mock)", slog.String("job_id", jobID))
+			c.logger.Debug("Distributing model to clients (mock)", slog.String("job_id", activeJob.Job.Name))
 			for _, client := range activeJob.Participants {
-				// Simulate model distribution and client training
-				c.metricsCollector.RecordClientStatusChange(client.ID, FLClientStatusIdle, FLClientStatusTraining)
-				// Simulate client processing time
-				time.Sleep(1 * time.Second)
-				// Simulate client submitting update
-				localMetrics := ModelMetrics{Accuracy: 0.8 + rand.Float64()*0.1} // Mock accuracy
-				update := ModelUpdate{
-					ClientID:        client.ID,
-					ModelID:         activeJob.CurrentModel.ID,
-					Round:           round,
-					Parameters:      []byte(fmt.Sprintf("client_%s_model_update_round_%d", client.ID, round)),
-					ParametersHash:  hex.EncodeToString(sha256.New().Sum([]byte(fmt.Sprintf("client_%s_model_update_round_%d", client.ID, round)))),
-					DataSamplesCount: 1000,
-					LocalMetrics:    localMetrics,
-					Timestamp:       time.Now(),
+				go func(client *FLClient) {
+					c.metricsCollector.RecordClientStatusChange(client.ID, FLClientStatusIdle, FLClientStatusTraining)
+					time.Sleep(time.Duration(1+rand.Intn(5)) * time.Second) // Simulate variable training time
+					localMetrics := ModelMetrics{Accuracy: 0.8 + rand.Float64()*0.1}
+					update := ModelUpdate{
+						ClientID:         client.ID,
+						ModelID:          activeJob.CurrentModel.ID,
+						Round:            round,
+						Parameters:       []byte(fmt.Sprintf("client_%s_model_update_round_%d", client.ID, round)),
+						ParametersHash:   hex.EncodeToString(sha256.New().Sum([]byte(fmt.Sprintf("client_%s_model_update_round_%d", client.ID, round)))),
+						DataSamplesCount: 1000,
+						LocalMetrics:     localMetrics,
+						SubmissionTime:   time.Now(),
+					}
+					activeJob.modelUpdates <- update
+					c.metricsCollector.RecordClientStatusChange(client.ID, FLClientStatusTraining, FLClientStatusIdle)
+				}(client)
+			}
+
+			// Clear collected updates and timestamps for the new round
+			activeJob.participantMutex.Lock()
+			activeJob.collectedUpdates = make(map[string]ModelUpdate)
+			activeJob.updateTimestamps = make(map[string]time.Time)
+			activeJob.participantMutex.Unlock()
+
+			// Start a goroutine to collect and process updates asynchronously
+			c.wg.Add(1)
+			go c.collectAndProcessUpdatesAsync(ctx, activeJob, round)
+
+			// Wait for aggregation to be triggered or round to complete
+			select {
+			case <-activeJob.aggregationTrigger:
+				c.logger.Info("Aggregation triggered for round", slog.String("job_id", activeJob.Job.Name), slog.Int64("round", round))
+				// Collect updates from the map
+				activeJob.participantMutex.RLock()
+				updatesToAggregate := make([]ModelUpdate, 0, len(activeJob.collectedUpdates))
+				for _, update := range activeJob.collectedUpdates {
+					updatesToAggregate = append(updatesToAggregate, update)
 				}
-				activeJob.modelUpdates <- update
-				c.metricsCollector.RecordClientStatusChange(client.ID, FLClientStatusTraining, FLClientStatusIdle)
-			}
+				activeJob.participantMutex.RUnlock()
 
-			// 2. Collect model updates and aggregate
-			collectedUpdates := []ModelUpdate{}
-			timeout := time.After(activeJob.Job.Spec.TrainingConfig.TimeoutSeconds * time.Second)
-			for i := 0; i < len(activeJob.Participants); i++ {
-				select {
-				case update := <-activeJob.modelUpdates:
-					collectedUpdates = append(collectedUpdates, update)
-				case <-timeout:
-					c.logger.Warn("Model update collection timed out for round",
-						slog.String("job_id", jobID), slog.Int64("round", round))
-					// Handle stragglers/failures
-					break
+				if !c.processCollectedUpdates(ctx, activeJob, round, updatesToAggregate) {
+					break // Round failed, break the loop
 				}
-			}
-
-			if len(collectedUpdates) < activeJob.Job.Spec.TrainingConfig.MinParticipants {
-				c.logger.Error("Insufficient model updates for aggregation",
-					slog.String("job_id", jobID), slog.Int64("round", round),
-					slog.Int("collected", len(collectedUpdates)),
-					slog.Int("required", activeJob.Job.Spec.TrainingConfig.MinParticipants))
-				activeJob.FailedRounds++
-				activeJob.Status = TrainingStatusFailed
-				activeJob.Job.Status.Phase = TrainingStatusFailed
-				activeJob.Job.Status.Message = fmt.Sprintf("Insufficient updates for round %d", round)
+			case <-ctx.Done():
+				c.logger.Info("Training orchestration cancelled during aggregation wait", slog.String("job_id", activeJob.Job.Name))
+				activeJob.Status = TrainingStatusPaused
+				activeJob.Job.Status.Phase = TrainingStatusPaused
 				activeJob.Job.Status.LastUpdate = metav1.Now()
-				// Consider breaking or retrying
-				break // Exit round loop, potentially fail job
+				return
 			}
 
-			c.logger.Info("Aggregating models", slog.String("job_id", jobID), slog.Int64("round", round))
-			activeJob.Status = TrainingStatusAggregating
-			activeJob.Job.Status.Phase = TrainingStatusAggregating
-			activeJob.Job.Status.LastUpdate = metav1.Now()
-
-			newGlobalModel, err := c.aggregationEngine.Aggregate(collectedUpdates, activeJob.CurrentModel.AggregationAlg)
-			if err != nil {
-				c.logger.Error("Model aggregation failed",
-					slog.String("job_id", jobID), slog.Int64("round", round), slog.String("error", err.Error()))
-				activeJob.FailedRounds++
-				activeJob.Status = TrainingStatusFailed
-				activeJob.Job.Status.Phase = TrainingStatusFailed
-				activeJob.Job.Status.Message = fmt.Sprintf("Aggregation failed in round %d: %v", round, err)
-				activeJob.Job.Status.LastUpdate = metav1.Now()
-				break // Exit round loop, potentially fail job
-			}
-
-			activeJob.CurrentModel = newGlobalModel
-			activeJob.CurrentModel.CurrentRound = round
-			activeJob.CurrentModel.UpdatedAt = time.Now()
-			activeJob.LastAggregation = time.Now()
-			activeJob.CompletedRounds = round
-			activeJob.CurrentModel.Status = TrainingStatusRunning // Still running for next round
-
-			// Update global model in store
-			if err := c.modelStore.UpdateGlobalModel(ctx, activeJob.CurrentModel); err != nil {
-				c.logger.Error("Failed to update global model in store",
-					slog.String("model_id", activeJob.CurrentModel.ID), slog.String("error", err.Error()))
-			}
-
-			// Record round metrics
-			roundMetrics := RoundMetrics{
-				Round:             round,
-				Timestamp:         time.Now(),
-				ParticipatingClients: len(collectedUpdates),
-				ModelMetrics:      newGlobalModel.ModelMetrics,
-				AggregationTimeMs: float64(time.Since(activeJob.LastAggregation).Milliseconds()),
-				// Populate other metrics from collectedUpdates
-			}
-			c.metricsCollector.RecordRoundMetrics(roundMetrics)
-
-			c.logger.Info("Round completed",
-				slog.String("job_id", jobID), slog.Int64("round", round),
-				slog.Float64("accuracy", newGlobalModel.ModelMetrics.Accuracy))
-
-			// Check for convergence
-			if newGlobalModel.ModelMetrics.Accuracy >= activeJob.Job.Spec.TrainingConfig.TargetAccuracy {
-				c.logger.Info("Model converged", slog.String("job_id", jobID),
-					slog.Float64("accuracy", newGlobalModel.ModelMetrics.Accuracy))
+			if activeJob.CurrentModel.ModelMetrics.Accuracy >= activeJob.Job.Spec.TrainingConfig.TargetAccuracy {
+				c.logger.Info("Model converged", slog.String("job_id", activeJob.Job.Name), slog.Float64("accuracy", activeJob.CurrentModel.ModelMetrics.Accuracy))
 				activeJob.Status = TrainingStatusCompleted
 				activeJob.Job.Status.Phase = TrainingStatusCompleted
 				activeJob.Job.Status.Message = "Model converged successfully"
 				activeJob.Job.Status.LastUpdate = metav1.Now()
 				activeJob.CurrentModel.Status = TrainingStatusCompleted
-				break // Exit training loop
+				break
 			}
 		}
 	}
 
-	// Finalize job status
 	if activeJob.Status != TrainingStatusCompleted {
-		activeJob.Status = TrainingStatusFailed // Or completed if max rounds reached without convergence
+		activeJob.Status = TrainingStatusFailed
 		activeJob.Job.Status.Phase = TrainingStatusFailed
 		activeJob.Job.Status.Message = "Training completed without convergence or failed"
 		activeJob.Job.Status.LastUpdate = metav1.Now()
 		activeJob.CurrentModel.Status = TrainingStatusFailed
 	}
 	c.metricsCollector.RecordTrainingJobCompletion(activeJob.Job)
-	c.logger.Info("Training orchestration finished for job", slog.String("job_id", jobID),
-		slog.String("final_status", string(activeJob.Status)))
+	c.logger.Info("Training orchestration finished for job", slog.String("job_id", activeJob.Job.Name), slog.String("final_status", string(activeJob.Status)))
 
-	// Clean up active job
 	c.jobsMutex.Lock()
-	delete(c.activeJobs, jobID)
+	delete(c.activeJobs, activeJob.Job.Name)
 	c.jobsMutex.Unlock()
+}
+
+
+func (c *FLCoordinator) collectAndProcessUpdatesAsync(ctx context.Context, activeJob *ActiveTrainingJob, round int64) {
+	defer c.wg.Done()
+	jobID := activeJob.Job.Name
+	timeout := time.NewTimer(c.config.AggregationWindow)
+	minParticipants := int(float64(len(activeJob.Participants)) * c.config.MinParticipationRatio)
+
+	for {
+		select {
+		case update := <-activeJob.modelUpdates:
+			activeJob.participantMutex.Lock()
+			activeJob.collectedUpdates[update.ClientID] = update
+			activeJob.updateTimestamps[update.ClientID] = time.Now()
+			activeJob.participantMutex.Unlock()
+
+			c.logger.Debug("Collected model update",
+				slog.String("job_id", jobID),
+				slog.Int64("round", round),
+				slog.String("client_id", update.ClientID),
+				slog.Int("collected_count", len(activeJob.collectedUpdates)))
+
+			if len(activeJob.collectedUpdates) >= minParticipants {
+				// Trigger aggregation if minimum participants are met
+				select {
+				case activeJob.aggregationTrigger <- struct{}{}:
+					c.logger.Info("Triggered aggregation due to min participants met",
+						slog.String("job_id", jobID), slog.Int64("round", round))
+				default:
+					// Aggregation already triggered or channel full
+				}
+			}
+
+		case <-timeout.C:
+			c.logger.Warn("Aggregation window timed out for round",
+				slog.String("job_id", jobID), slog.Int64("round", round),
+				slog.Int("collected", len(activeJob.collectedUpdates)))
+			// Trigger aggregation due to timeout
+			select {
+			case activeJob.aggregationTrigger <- struct{}{}:
+				c.logger.Info("Triggered aggregation due to timeout",
+					slog.String("job_id", jobID), slog.Int64("round", round))
+			default:
+				// Aggregation already triggered or channel full
+			}
+			return // Exit goroutine after timeout and potential aggregation trigger
+
+		case <-ctx.Done():
+			c.logger.Info("Context cancelled during update collection", slog.String("job_id", jobID))
+			return
+		}
+	}
+}
+
+func (c *FLCoordinator) processCollectedUpdates(ctx context.Context, activeJob *ActiveTrainingJob, round int64, updates []ModelUpdate) bool {
+
+func (c *FLCoordinator) processCollectedUpdates(ctx context.Context, activeJob *ActiveTrainingJob, round int64, updates []ModelUpdate) bool {
+	minParticipants := int(float64(len(activeJob.Participants)) * c.config.MinParticipationRatio)
+
+	// Filter out updates that are too stale and calculate staleness scores
+	var validUpdates []ModelUpdate
+	stalenessScores := make(map[string]float64)
+	for _, update := range updates {
+		staleness := time.Since(update.SubmissionTime)
+		if staleness > c.config.StalenessThreshold {
+			c.logger.Warn("Discarding stale model update",
+				slog.String("job_id", activeJob.Job.Name),
+				slog.String("client_id", update.ClientID),
+				slog.Duration("staleness", staleness))
+			continue
+		}
+		validUpdates = append(validUpdates, update)
+		// Simple linear staleness weighting: 1.0 for fresh, decreasing to 0.0 at threshold
+		stalenessScores[update.ClientID] = 1.0 - (float64(staleness) / float64(c.config.StalenessThreshold))
+	}
+
+	if len(validUpdates) < minParticipants {
+		c.logger.Error("Insufficient valid model updates for aggregation",
+			slog.String("job_id", activeJob.Job.Name), slog.Int64("round", round),
+			slog.Int("collected", len(validUpdates)), slog.Int("required", minParticipants))
+		activeJob.FailedRounds++
+		activeJob.Status = TrainingStatusFailed
+		activeJob.Job.Status.Phase = TrainingStatusFailed
+		activeJob.Job.Status.Message = fmt.Sprintf("Insufficient valid updates for round %d", round)
+		activeJob.Job.Status.LastUpdate = metav1.Now()
+		return false
+	}
+
+	c.logger.Info("Aggregating models", slog.String("job_id", activeJob.Job.Name), slog.Int64("round", round))
+	activeJob.Status = TrainingStatusAggregating
+	activeJob.Job.Status.Phase = TrainingStatusAggregating
+	activeJob.Job.Status.LastUpdate = metav1.Now()
+
+	newGlobalModel, err := c.aggregationEngine.Aggregate(validUpdates, activeJob.CurrentModel.AggregationAlg, stalenessScores)
+	if err != nil {
+		c.logger.Error("Model aggregation failed",
+			slog.String("job_id", activeJob.Job.Name), slog.Int64("round", round), slog.String("error", err.Error()))
+		activeJob.FailedRounds++
+		activeJob.Status = TrainingStatusFailed
+		activeJob.Job.Status.Phase = TrainingStatusFailed
+		activeJob.Job.Status.Message = fmt.Sprintf("Aggregation failed in round %d: %v", round, err)
+		activeJob.Job.Status.LastUpdate = metav1.Now()
+		return false
+	}
+
+	activeJob.CurrentModel = newGlobalModel
+	activeJob.CurrentModel.CurrentRound = round
+	activeJob.CurrentModel.UpdatedAt = time.Now()
+	activeJob.LastAggregation = time.Now()
+	activeJob.CompletedRounds = round
+	activeJob.CurrentModel.Status = TrainingStatusRunning
+
+	if err := c.modelStore.UpdateGlobalModel(ctx, activeJob.CurrentModel); err != nil {
+		c.logger.Error("Failed to update global model in store",
+			slog.String("model_id", activeJob.CurrentModel.ID), slog.String("error", err.Error()))
+	}
+
+	roundMetrics := RoundMetrics{
+		Round:             round,
+		Timestamp:         time.Now(),
+		ParticipatingClients: len(updates),
+		ModelMetrics:      newGlobalModel.ModelMetrics,
+		AggregationTimeMs: float64(time.Since(activeJob.LastAggregation).Milliseconds()),
+	}
+	c.metricsCollector.RecordRoundMetrics(roundMetrics)
+
+	c.logger.Info("Round completed",
+		slog.String("job_id", activeJob.Job.Name), slog.Int64("round", round),
+		slog.Float64("accuracy", newGlobalModel.ModelMetrics.Accuracy))
+
+	return true
 }
 
 // --- Mock Implementations for Interfaces ---
@@ -716,18 +890,22 @@ type mockAggregationEngine struct {
 	logger *slog.Logger
 }
 
-func (m *mockAggregationEngine) Aggregate(updates []ModelUpdate, algorithm AggregationAlgorithm) (*GlobalModel, error) {
-	m.logger.Debug("Mock AggregationEngine: Aggregating models", slog.String("algorithm", string(algorithm)))
-	// Simulate aggregation: simple average of accuracies
-	var totalAccuracy float64
-	var count int
+func (m *mockAggregationEngine) Aggregate(updates []ModelUpdate, algorithm AggregationAlgorithm, stalenessScores map[string]float64) (*GlobalModel, error) {
+	m.logger.Debug("Mock AggregationEngine: Aggregating models", slog.String("algorithm", string(algorithm)), slog.Any("staleness_scores", stalenessScores))
+	// Simulate aggregation: simple average of accuracies, weighted by staleness
+	var totalWeightedAccuracy float64
+	var totalWeight float64
 	for _, update := range updates {
-		totalAccuracy += update.LocalMetrics.Accuracy
-		count++
+		weight := 1.0
+		if score, ok := stalenessScores[update.ClientID]; ok {
+			weight = score
+		}
+		totalWeightedAccuracy += update.LocalMetrics.Accuracy * weight
+		totalWeight += weight
 	}
 	avgAccuracy := 0.0
-	if count > 0 {
-		avgAccuracy = totalAccuracy / float64(count)
+	if totalWeight > 0 {
+		avgAccuracy = totalWeightedAccuracy / totalWeight
 	}
 
 	return &GlobalModel{
@@ -1042,24 +1220,21 @@ func (c *FLCoordinator) StartTraining(ctx context.Context, jobSpec TrainingJobSp
 	c.logger.Info("Starting new FL training job",
 		slog.String("model_id", jobSpec.ModelID),
 		slog.String("rrm_task", string(jobSpec.RRMTask)))
-	
-	// Validate job specification
+
 	if err := c.validateTrainingJobSpec(jobSpec); err != nil {
 		return nil, errors.NewErrorBuilder(errors.ErrInvalidInput).
 			WithDetail("validation_error", err.Error()).
 			WithCaller().
 			Build()
 	}
-	
-	// Check resource availability
+
 	if err := c.resourceManager.CheckAvailability(ctx, jobSpec.Resources); err != nil {
 		return nil, errors.NewErrorBuilder(errors.ErrServiceUnavailable).
 			WithDetail("resource_error", err.Error()).
 			WithCaller().
 			Build()
 	}
-	
-	// Create training job
+
 	job := &TrainingJob{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "federatedlearning.o-ran.org/v1",
@@ -1080,29 +1255,38 @@ func (c *FLCoordinator) StartTraining(ctx context.Context, jobSpec TrainingJobSp
 			LastUpdate: metav1.Now(),
 		},
 	}
-	
-	// Get or create global model
-	globalModel, err := c.getOrCreateGlobalModel(ctx, jobSpec.ModelID, jobSpec.RRMTask)
+
+	c.jobQueue.Submit(job, func() {
+		c.executeTrainingJob(context.Background(), job)
+	})
+
+	c.logger.Info("Successfully queued FL training job",
+		slog.String("job_id", job.Name),
+		slog.String("model_id", jobSpec.ModelID))
+
+	return job, nil
+}
+
+func (c *FLCoordinator) executeTrainingJob(ctx context.Context, job *TrainingJob) {
+	globalModel, err := c.getOrCreateGlobalModel(ctx, job.Spec.ModelID, job.Spec.RRMTask)
 	if err != nil {
-		return nil, errors.NewInternal(fmt.Sprintf("failed to get global model: %v", err))
+		c.logger.Error("Failed to get global model", slog.String("error", err.Error()))
+		return
 	}
-	
-	// Select participating clients
-	selectedClients, err := c.selectClientsForTraining(ctx, jobSpec.ClientSelector, jobSpec.RRMTask)
+
+	selectedClients, err := c.selectClientsForTraining(ctx, job.Spec.ClientSelector, job.Spec.RRMTask)
 	if err != nil {
-		return nil, errors.NewInternal(fmt.Sprintf("failed to select clients: %v", err))
+		c.logger.Error("Failed to select clients", slog.String("error", err.Error()))
+		return
 	}
-	
-	if len(selectedClients) < jobSpec.TrainingConfig.MinParticipants {
-		return nil, errors.NewErrorBuilder(errors.ErrServiceUnavailable).
-			WithDetail("reason", "insufficient participants").
-			WithDetail("required", jobSpec.TrainingConfig.MinParticipants).
-			WithDetail("available", len(selectedClients)).
-			WithCaller().
-			Build()
+
+	if len(selectedClients) < job.Spec.TrainingConfig.MinParticipants {
+		c.logger.Error("Insufficient participants",
+			slog.Int("required", job.Spec.TrainingConfig.MinParticipants),
+			slog.Int("available", len(selectedClients)))
+		return
 	}
-	
-	// Create active training job
+
 	activeJob := &ActiveTrainingJob{
 		Job:              job,
 		Participants:     make(map[string]*FLClient),
@@ -1110,42 +1294,34 @@ func (c *FLCoordinator) StartTraining(ctx context.Context, jobSpec TrainingJobSp
 		RoundStartTime:   time.Now(),
 		LastAggregation:  time.Now(),
 		Status:           TrainingStatusInitializing,
+		stalenessScores:  make(map[string]float64),
+		updateTimestamps: make(map[string]time.Time),
 		modelUpdates:     make(chan ModelUpdate, len(selectedClients)*2),
 		statusUpdates:    make(chan TrainingStatusUpdate, len(selectedClients)*2),
 		errorChan:        make(chan error, len(selectedClients)),
+		aggregationTrigger: make(chan struct{}, 1),
+		collectedUpdates: make(map[string]ModelUpdate),
 	}
-	
-	// Add participants
+
 	for _, client := range selectedClients {
 		activeJob.Participants[client.ID] = client
 	}
-	
-	// Store active job
+
 	c.jobsMutex.Lock()
 	c.activeJobs[job.Name] = activeJob
 	c.jobsMutex.Unlock()
-	
-	// Start training orchestration
+
 	c.wg.Add(1)
 	go c.orchestrateTraining(ctx, activeJob)
-	
-	// Update job status
+
 	job.Status.Phase = TrainingStatusWaiting
 	job.Status.ParticipatingClients = make([]string, 0, len(selectedClients))
 	for clientID := range activeJob.Participants {
 		job.Status.ParticipatingClients = append(job.Status.ParticipatingClients, clientID)
 	}
 	job.Status.LastUpdate = metav1.Now()
-	
-	// Emit training start event
+
 	c.metricsCollector.RecordTrainingJobStart(job)
-	
-	c.logger.Info("Successfully started FL training job",
-		slog.String("job_id", job.Name),
-		slog.Int("participants", len(selectedClients)),
-		slog.String("model_id", jobSpec.ModelID))
-	
-	return job, nil
 }
 
 // Helper methods and initialization functions would continue here...
@@ -1180,6 +1356,9 @@ func (c *FLCoordinator) Shutdown(ctx context.Context) error {
 		close(job.modelUpdates)
 		close(job.statusUpdates)
 		close(job.errorChan)
+		close(job.aggregationTrigger)
+		job.collectedUpdates = nil
+		job.updateTimestamps = nil
 	}
 	c.jobsMutex.Unlock()
 	
@@ -1213,4 +1392,21 @@ func (c *FLCoordinator) Shutdown(ctx context.Context) error {
 	}
 	
 	return nil
+}
+
+func (c *FLCoordinator) HandleTraining(stream FederatedLearning_HandleTrainingServer) error {
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		switch req.Request.(type) {
+		case *TrainingRequest_Registration:
+			// Handle registration
+		case *TrainingRequest_Update:
+			// Handle model update
+		case *TrainingRequest_Heartbeat:
+			// Handle heartbeat
+		}
+	}
 }

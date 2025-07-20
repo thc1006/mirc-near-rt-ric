@@ -1,0 +1,91 @@
+// Copyright 2024 The O-RAN Near-RT RIC Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package federatedlearning;
+
+option go_package = "github.com/kubernetes/dashboard/src/app/backend/federatedlearning/proto";
+
+// The Federated Learning service definition.
+service FederatedLearning {
+  // A client-to-coordinator stream for a single training job.
+  rpc HandleTraining(stream TrainingRequest) returns (stream TrainingResponse);
+}
+
+// TrainingRequest is a message sent from a client to the coordinator.
+message TrainingRequest {
+  oneof request {
+    ClientRegistration registration = 1;
+    ModelUpdate update = 2;
+    Heartbeat heartbeat = 3;
+  }
+}
+
+// TrainingResponse is a message sent from the coordinator to a client.
+message TrainingResponse {
+  oneof response {
+    ServerChallenge challenge = 1;
+    ModelConfiguration config = 2;
+    RoundResult result = 3;
+  }
+}
+
+message ClientRegistration {
+  string xapp_name = 1;
+  string endpoint = 2;
+  repeated string rrm_tasks = 3;
+}
+
+message ModelUpdate {
+  string client_id = 1;
+  string model_id = 2;
+  int64 round = 3;
+  bytes parameters = 4;
+  string parameters_hash = 5;
+  int64 data_samples_count = 6;
+  ModelMetrics local_metrics = 7;
+}
+
+message Heartbeat {
+  string client_id = 1;
+}
+
+message ServerChallenge {
+  bytes nonce = 1;
+}
+
+message ModelConfiguration {
+  string model_id = 1;
+  int64 round = 2;
+  bytes parameters = 3;
+  TrainingConfiguration config = 4;
+}
+
+message RoundResult {
+  string model_id = 1;
+  int64 round = 2;
+  ModelMetrics metrics = 3;
+}
+
+message ModelMetrics {
+  double accuracy = 1;
+  double loss = 2;
+}
+
+message TrainingConfiguration {
+  int32 batch_size = 1;
+  int32 local_epochs = 2;
+  double learning_rate = 3;
+}

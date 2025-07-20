@@ -25,9 +25,9 @@ type AsyncCoordinatorConfig struct {
 	CoordinatorConfig       CoordinatorConfig `yaml:"coordinator"`
 
 	// Asynchronous specific settings
-	MinClientThreshold      int               `yaml:"min_client_threshold"`
-	MaxClientThreshold      int               `yaml:"max_client_threshold"`
-	StragglerTimeout        time.Duration     `yaml:"straggler_timeout"`
+	MinParticipationRatio   float64           `yaml:"min_participation_ratio"`
+	MaxStaleness            time.Duration     `yaml:"max_staleness"`
+	StalenessWeightingEnabled bool            `yaml:"staleness_weighting_enabled"`
 	AggregationWindow       time.Duration     `yaml:"aggregation_window"`
 	PartialAggregationEnabled bool            `yaml:"partial_aggregation_enabled"`
 
