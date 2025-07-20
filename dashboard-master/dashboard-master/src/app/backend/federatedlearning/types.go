@@ -1425,11 +1425,5 @@ type FairnessController struct {
 	Algorithm    string `json:"algorithm"`
 }
 
-type AllocationPolicy string
-
-const (
-	AllocationPolicyFIFO      AllocationPolicy = "fifo"
-	AllocationPolicyPriority  AllocationPolicy = "priority"
-	AllocationPolicyFairShare AllocationPolicy = "fair_share"
-)
+// AllocationPolicy type and constants defined in config.go
 

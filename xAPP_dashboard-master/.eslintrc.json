@@ -17,8 +17,8 @@
       },
       "extends": [
         "eslint:recommended",
-        "@typescript-eslint/recommended",
-        "@angular-eslint/template/process-inline-templates"
+        "plugin:@typescript-eslint/recommended",
+        "plugin:@angular-eslint/recommended"
       ],
       "plugins": [
         "@angular-eslint/eslint-plugin",
@@ -60,7 +60,7 @@
         "*.html"
       ],
       "extends": [
-        "@angular-eslint/template/recommended"
+        "plugin:@angular-eslint/template/recommended"
       ],
       "rules": {}
     }
