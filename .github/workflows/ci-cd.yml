@@ -69,6 +69,9 @@ jobs:
   code-quality:
     name: Code Quality
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # 允許上傳 SARIF 掃描結果
     strategy:
       matrix:
         component: ['main-dashboard', 'xapp-dashboard']
@@ -111,12 +114,20 @@ jobs:
         go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
         go tool cover -html=coverage.out -o coverage.html
 
-    - name: Go security scan
+    - name: Go Security Scan (gosec)
       if: matrix.component == 'main-dashboard'
-      uses: securecodewarrior/github-action-gosec@master
+      working-directory: dashboard-master/dashboard-master
+      run: |
+        # 安裝 gosec 工具
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
+        # 執行掃描並將結果輸出到工作區根目錄的 sarif 檔案
+        gosec -no-fail -fmt sarif -out ../../gosec-results.sarif ./...
+
+    - name: Upload Gosec Scan Results to GitHub Security tab
+      if: matrix.component == 'main-dashboard'
+      uses: github/codeql-action/upload-sarif@v3
       with:
-        args: '-no-fail -fmt sarif -out gosec-results.sarif ./...'
-        working-directory: dashboard-master/dashboard-master
+        sarif_file: 'gosec-results.sarif'
 
     # Node.js linting and testing
     - name: Install Node.js dependencies
@@ -545,7 +556,7 @@ jobs:
           
           ## Quick Start
           ```bash
-          git clone https://github.com/${{ github.repository }}.git
+          git clone [https://github.com/$](https://github.com/$){{ github.repository }}.git
           cd near-rt-ric
           git checkout ${{ github.ref_name }}
           ./scripts/setup.sh
