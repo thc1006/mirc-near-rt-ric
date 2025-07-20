@@ -359,9 +359,17 @@ func (s *FedAvgStrategy) Aggregate(ctx context.Context, models []*ModelUpdate, w
 	
 	// Apply compression if enabled
 	if s.compressionEnabled {
-		if err := s.compressModel(aggregatedModel); err != nil {
+		// TODO: Get network conditions from the environment.
+		networkConditions := &NetworkConditions{
+			E2Latency: 50,
+			SliceID:   "slice-1",
+		}
+		compressedModel, err := s.compressionManager.CompressModel(aggregatedModel, networkConditions)
+		if err != nil {
 			s.logger.Warn("Model compression failed",
 				slog.String("error", err.Error()))
+		} else {
+			aggregatedModel = compressedModel
 		}
 	}
 	
