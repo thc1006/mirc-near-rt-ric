@@ -1,0 +1,231 @@
+# Main Dashboard Deployment
+{{- if .Values.mainDashboard.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "oran-nearrt-ric.fullname" . }}-main-dashboard
+  namespace: {{ include "oran-nearrt-ric.namespace" . }}
+  labels:
+    {{- include "oran-nearrt-ric.mainDashboard.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mainDashboard.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "oran-nearrt-ric.mainDashboard.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "oran-nearrt-ric.mainDashboard.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- include "oran-nearrt-ric.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "oran-nearrt-ric.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.mainDashboard.podSecurityContext | nindent 8 }}
+      containers:
+        - name: main-dashboard
+          securityContext:
+            {{- toYaml .Values.mainDashboard.securityContext | nindent 12 }}
+          image: {{ include "oran-nearrt-ric.mainDashboard.image" . }}
+          imagePullPolicy: {{ .Values.mainDashboard.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mainDashboard.service.targetPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          env:
+            - name: BIND_ADDRESS
+              value: {{ .Values.mainDashboard.env.bindAddress | quote }}
+            - name: PORT
+              value: {{ .Values.mainDashboard.env.port | quote }}
+            - name: TOKEN_TTL
+              value: {{ .Values.mainDashboard.env.tokenTtl | quote }}
+            - name: AUTO_GENERATE_CERTS
+              value: {{ .Values.mainDashboard.env.autoGenerateCerts | quote }}
+            - name: ENABLE_INSECURE_LOGIN
+              value: {{ .Values.mainDashboard.env.enableInsecureLogin | quote }}
+            - name: SYSTEM_BANNER
+              value: {{ .Values.mainDashboard.env.systemBanner | quote }}
+            - name: SYSTEM_BANNER_SEVERITY
+              value: {{ .Values.mainDashboard.env.systemBannerSeverity | quote }}
+          resources:
+            {{- toYaml .Values.mainDashboard.resources | nindent 12 }}
+          {{- if .Values.mainDashboard.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+      {{- if .Values.mainDashboard.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "oran-nearrt-ric.fullname" . }}-main-dashboard-data
+      {{- end }}
+      {{- with .Values.mainDashboard.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mainDashboard.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mainDashboard.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+---
+# xApp Dashboard Deployment
+{{- if .Values.xappDashboard.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "oran-nearrt-ric.fullname" . }}-xapp-dashboard
+  namespace: {{ include "oran-nearrt-ric.namespace" . }}
+  labels:
+    {{- include "oran-nearrt-ric.xappDashboard.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.xappDashboard.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "oran-nearrt-ric.xappDashboard.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "oran-nearrt-ric.xappDashboard.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- include "oran-nearrt-ric.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "oran-nearrt-ric.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.xappDashboard.securityContext | nindent 8 }}
+      containers:
+        - name: xapp-dashboard
+          securityContext:
+            {{- toYaml .Values.xappDashboard.securityContext | nindent 12 }}
+          image: {{ include "oran-nearrt-ric.xappDashboard.image" . }}
+          imagePullPolicy: {{ .Values.xappDashboard.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.xappDashboard.service.targetPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.xappDashboard.env.nodeEnv | quote }}
+            - name: API_BASE_URL
+              value: {{ .Values.xappDashboard.env.apiBaseUrl | quote }}
+          resources:
+            {{- toYaml .Values.xappDashboard.resources | nindent 12 }}
+      {{- with .Values.xappDashboard.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.xappDashboard.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.xappDashboard.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+---
+# Federated Learning Coordinator Deployment
+{{- if .Values.federatedLearning.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "oran-nearrt-ric.fullname" . }}-fl-coordinator
+  namespace: {{ include "oran-nearrt-ric.namespace" . }}
+  labels:
+    {{- include "oran-nearrt-ric.federatedLearning.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.federatedLearning.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "oran-nearrt-ric.federatedLearning.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "oran-nearrt-ric.federatedLearning.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- include "oran-nearrt-ric.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "oran-nearrt-ric.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.federatedLearning.securityContext | nindent 8 }}
+      containers:
+        - name: fl-coordinator
+          securityContext:
+            {{- toYaml .Values.federatedLearning.securityContext | nindent 12 }}
+          image: {{ include "oran-nearrt-ric.federatedLearning.image" . }}
+          imagePullPolicy: {{ .Values.federatedLearning.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.federatedLearning.service.targetPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /fl/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /fl/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          env:
+            - name: FL_MODE
+              value: {{ .Values.federatedLearning.env.flMode | quote }}
+            - name: FL_BIND_ADDRESS
+              value: {{ .Values.federatedLearning.env.flBindAddress | quote }}
+            - name: FL_PORT
+              value: {{ .Values.federatedLearning.env.flPort | quote }}
+            - name: FL_MODEL_STORAGE
+              value: {{ .Values.federatedLearning.env.flModelStorage | quote }}
+            - name: FL_CLIENT_TIMEOUT
+              value: {{ .Values.federatedLearning.env.flClientTimeout | quote }}
+            - name: FL_AGGREGATION_STRATEGY
+              value: {{ .Values.federatedLearning.env.flAggregationStrategy | quote }}
+            - name: FL_MIN_CLIENTS
+              value: {{ .Values.federatedLearning.env.flMinClients | quote }}
+            - name: FL_MAX_ROUNDS
+              value: {{ .Values.federatedLearning.env.flMaxRounds | quote }}
+          resources:
+            {{- toYaml .Values.federatedLearning.resources | nindent 12 }}
+          {{- if .Values.federatedLearning.persistence.enabled }}
+          volumeMounts:
+            - name: models
+              mountPath: /data/models
+          {{- end }}
+      {{- if .Values.federatedLearning.persistence.enabled }}
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "oran-nearrt-ric.fullname" . }}-fl-coordinator-models
+      {{- end }}
+{{- end }}

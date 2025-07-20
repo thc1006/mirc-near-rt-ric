@@ -1,0 +1,45 @@
+1. Get the application URL by running these commands:
+{{- if .Values.mainDashboard.ingress.enabled }}
+{{- range $host := .Values.mainDashboard.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.mainDashboard.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.mainDashboard.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ include "oran-nearrt-ric.namespace" . }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "oran-nearrt-ric.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ include "oran-nearrt-ric.namespace" . }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.mainDashboard.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ include "oran-nearrt-ric.namespace" . }} svc -w {{ include "oran-nearrt-ric.fullname" . }}'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ include "oran-nearrt-ric.namespace" . }} {{ include "oran-nearrt-ric.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.mainDashboard.service.port }}
+{{- else if contains "ClusterIP" .Values.mainDashboard.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ include "oran-nearrt-ric.namespace" . }} -l "app.kubernetes.io/name={{ include "oran-nearrt-ric.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ include "oran-nearrt-ric.namespace" . }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ include "oran-nearrt-ric.namespace" . }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+2. To access the xApp Dashboard:
+{{- if .Values.xappDashboard.enabled }}
+  kubectl --namespace {{ include "oran-nearrt-ric.namespace" . }} port-forward service/{{ include "oran-nearrt-ric.fullname" . }}-xapp-dashboard 4200:{{ .Values.xappDashboard.service.port }}
+  Then open http://localhost:4200
+{{- end }}
+
+3. To access the Federated Learning Coordinator:
+{{- if .Values.federatedLearning.enabled }}
+  kubectl --namespace {{ include "oran-nearrt-ric.namespace" . }} port-forward service/{{ include "oran-nearrt-ric.fullname" . }}-fl-coordinator 8090:{{ .Values.federatedLearning.service.port }}
+  Then open http://localhost:8090
+{{- end }}
+
+4. To view the Grafana dashboard:
+{{- if .Values.monitoring.grafana.enabled }}
+  kubectl --namespace {{ include "oran-nearrt-ric.namespace" . }} port-forward service/{{ .Release.Name }}-grafana 3000:80
+  Then open http://localhost:3000
+  Username: admin
+  Password: {{ .Values.monitoring.grafana.adminPassword }}
+{{- end }}
+
+For more information about this O-RAN Near-RT RIC deployment, visit:
+https://github.com/hctsai1006/near-rt-ric

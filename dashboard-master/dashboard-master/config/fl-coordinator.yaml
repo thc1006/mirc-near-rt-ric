@@ -1,0 +1,214 @@
+# Federated Learning Coordinator Configuration
+# O-RAN Near-RT RIC Platform FL Settings
+
+# Coordinator settings
+coordinator:
+  # Binding configuration
+  bind_address: "0.0.0.0"
+  port: 8080
+  
+  # TLS configuration
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+  
+  # Authentication
+  auth:
+    enabled: true
+    token_ttl: 3600  # 1 hour
+    secret_key: "fl-coordinator-secret-key"
+  
+  # Logging
+  logging:
+    level: "info"
+    format: "json"
+    file: "/var/log/fl-coordinator.log"
+
+# Federated Learning settings
+federated_learning:
+  # Model storage
+  model_storage:
+    type: "filesystem"
+    path: "/data/models"
+    backup_path: "/data/models/backup"
+  
+  # Aggregation strategy
+  aggregation:
+    strategy: "fedavg"  # Options: fedavg, fedprox, scaffold
+    min_clients: 2
+    max_clients: 10
+    min_fit_clients: 2
+    min_eval_clients: 2
+    fraction_fit: 1.0
+    fraction_eval: 1.0
+  
+  # Training rounds
+  training:
+    max_rounds: 100
+    round_timeout: 300  # 5 minutes
+    eval_frequency: 5   # Evaluate every 5 rounds
+    
+  # Client management
+  clients:
+    heartbeat_interval: 30  # seconds
+    registration_timeout: 60  # seconds
+    max_inactive_time: 180  # 3 minutes
+    
+  # Privacy settings
+  privacy:
+    differential_privacy:
+      enabled: false
+      epsilon: 1.0
+      delta: 1e-5
+    secure_aggregation:
+      enabled: true
+      threshold: 0.8
+    
+  # Model compression
+  compression:
+    enabled: true
+    method: "quantization"  # Options: quantization, sparsification, distillation
+    compression_ratio: 0.1
+
+# xApp integration
+xapp_integration:
+  # xApp discovery
+  discovery:
+    enabled: true
+    namespace: "oran-nearrt-ric"
+    label_selector: "app.kubernetes.io/component=xapp"
+    
+  # Communication
+  communication:
+    protocol: "grpc"  # Options: grpc, http, mqtt
+    port: 9090
+    timeout: 30
+    
+  # Metrics collection
+  metrics:
+    enabled: true
+    collection_interval: 10  # seconds
+    metrics_endpoint: "/metrics"
+
+# O-RAN interfaces
+oran_interfaces:
+  # E2 Interface integration
+  e2:
+    enabled: true
+    endpoint: "e2-termination:38000"
+    protocol: "sctp"
+    
+  # A1 Interface integration  
+  a1:
+    enabled: true
+    endpoint: "a1-mediator:10020"
+    protocol: "http"
+    
+  # O1 Interface integration
+  o1:
+    enabled: true
+    endpoint: "o1-adapter:830"
+    protocol: "netconf"
+
+# Database configuration
+database:
+  type: "postgresql"  # Options: postgresql, mysql, sqlite
+  host: "postgresql"
+  port: 5432
+  database: "fl_coordinator"
+  username: "fl_user"
+  password: "fl_password"
+  max_connections: 20
+  idle_timeout: 300
+
+# Redis configuration (for caching and session management)
+redis:
+  enabled: true
+  host: "redis"
+  port: 6379
+  password: ""
+  database: 0
+  pool_size: 10
+
+# Monitoring and observability
+monitoring:
+  # Prometheus metrics
+  prometheus:
+    enabled: true
+    endpoint: "/metrics"
+    port: 9091
+    
+  # Health checks
+  health:
+    enabled: true
+    endpoint: "/health"
+    checks:
+      - "database"
+      - "redis"
+      - "model_storage"
+      
+  # Tracing
+  tracing:
+    enabled: false
+    jaeger_endpoint: "jaeger-agent:6831"
+    
+# Performance settings
+performance:
+  # Worker threads
+  workers: 4
+  
+  # Queue settings
+  queue:
+    max_size: 1000
+    timeout: 30
+    
+  # Memory management
+  memory:
+    max_heap_size: "2Gi"
+    gc_target_percentage: 100
+    
+  # CPU limits
+  cpu:
+    max_threads: 8
+    thread_pool_size: 16
+
+# Security settings
+security:
+  # CORS
+  cors:
+    enabled: true
+    allowed_origins: ["*"]
+    allowed_methods: ["GET", "POST", "PUT", "DELETE"]
+    allowed_headers: ["*"]
+    
+  # Rate limiting
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 100
+    burst_size: 20
+    
+  # Input validation
+  validation:
+    max_request_size: "10MB"
+    timeout: 30
+    
+# Network configuration
+network:
+  # Network slice management
+  slices:
+    enabled: true
+    isolation_level: "strict"  # Options: strict, moderate, relaxed
+    
+  # QoS settings
+  qos:
+    latency_threshold: 10  # milliseconds
+    bandwidth_limit: "1Gbps"
+    priority: "high"
+    
+# Development settings (disable in production)
+development:
+  debug_mode: false
+  mock_data: false
+  test_mode: false
+  verbose_logging: false
