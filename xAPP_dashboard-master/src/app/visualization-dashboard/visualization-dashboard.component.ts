@@ -21,6 +21,8 @@ export class VisualizationDashboardComponent implements OnInit {
   constructor() { }
 
   ngOnInit(): void {
+    // Initialize visualization dashboard
+    console.log('Visualization Dashboard initialized');
   }
 
   onNodeSelected(node: YangNode): void {

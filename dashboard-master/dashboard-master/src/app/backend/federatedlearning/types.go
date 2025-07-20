@@ -44,7 +44,7 @@ const (
 	
 	// Anomaly detection and security tasks
 	RRMTaskAnomalyDetection     RRMTaskType = "anomaly_detection"
-	RRMTaskInterferenceManagement RRRTaskType = "interference_management"
+	RRMTaskInterferenceManagement RRMTaskType = "interference_management"
 )
 
 // FLClientStatus represents the current status of a federated learning client

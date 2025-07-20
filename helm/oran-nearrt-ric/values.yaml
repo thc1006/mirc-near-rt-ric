@@ -605,3 +605,17 @@ serviceAccount:
   create: true
   annotations: {}
   name: ""
+
+# Monitoring configuration  
+monitoring:
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+
+# External dependencies configuration
+redis:
+  enabled: false
+
+postgresql:
+  enabled: false

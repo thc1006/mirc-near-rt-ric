@@ -18,7 +18,10 @@
       "Bash(del package-lock.json)",
       "Bash(rm:*)",
       "Bash(npm run build:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(go vet:*)",
+      "Bash(npm run lint)",
+      "Bash(helm lint:*)"
     ],
     "deny": []
   }
