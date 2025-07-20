@@ -242,6 +242,10 @@ jobs:
         helm repo add bitnami https://charts.bitnami.com/bitnami
         helm repo update
 
+    - name: Update Helm dependencies
+      run: |
+        helm dependency update ./helm/oran-nearrt-ric
+
     - name: Lint Helm chart
       run: |
         helm lint helm/oran-nearrt-ric/

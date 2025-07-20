@@ -1,14 +1,16 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { HttpClientTestingModule } from '@angular/common/http/testing';
 
 import { ImagehistoryComponent } from './imagehistory.component';
 
-describe('TagsComponent', () => {
+describe('ImagehistoryComponent', () => {
   let component: ImagehistoryComponent;
   let fixture: ComponentFixture<ImagehistoryComponent>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      declarations: [ ImagehistoryComponent ]
+      declarations: [ ImagehistoryComponent ],
+      imports: [ HttpClientTestingModule ]
     })
     .compileComponents();
   });

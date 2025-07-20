@@ -458,3 +458,17 @@ type ModelUpdate struct {
 	Timestamp       time.Time         `json:"timestamp"`
 	Metadata        map[string]string `json:"metadata"`
 }
+
+// ClientInfo represents information about a federated learning client
+type ClientInfo struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Status       string    `json:"status"`
+	LastSeen     time.Time `json:"last_seen"`
+	Capabilities []string  `json:"capabilities"`
+}
+
+// ClientStore holds the information about registered clients.
+type ClientStore struct {
+	Clients map[string]ClientInfo `json:"clients"`
+}
