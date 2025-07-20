@@ -62,6 +62,7 @@ jobs:
         file: ./dashboard-master/dashboard-master/coverage.out
         flags: backend
         name: go-backend-coverage
+        fail_ci_if_error: false
         
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v3
@@ -138,6 +139,7 @@ jobs:
         file: ./xAPP_dashboard-master/coverage/lcov.info
         flags: frontend
         name: angular-frontend-coverage
+        fail_ci_if_error: false
         
     - name: Build Angular application
       run: |
@@ -328,7 +330,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [integration-tests, helm-charts-test, security-scan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository_owner == 'hctsai1006'
     
     steps:
     - name: Checkout code
@@ -387,7 +389,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [container-build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && secrets.KUBE_CONFIG_DEV != ''
     environment: development
     
     steps:

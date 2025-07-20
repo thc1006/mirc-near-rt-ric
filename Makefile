@@ -46,7 +46,7 @@ lint: lint-go lint-ts
 
 lint-go:
 	@echo ">> linting Go code..."
-	@golangci-lint run $(GO_PACKAGES)
+	@docker run --rm -v $(CURDIR):/app -w /app golangci/golangci-lint:v1.53.3 golangci-lint run $(GO_PACKAGES)
 
 lint-ts:
 	@echo ">> linting TypeScript code..."
