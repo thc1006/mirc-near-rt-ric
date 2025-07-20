@@ -46,7 +46,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 Selector labels
 */}}
 {{- define "oran-nearrt-ric.selectorLabels" -}}
-app.kubernetes.ioio/name: {{ include "oran-nearrt-ric.name" . }}
+app.kubernetes.io/name: {{ include "oran-nearrt-ric.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 

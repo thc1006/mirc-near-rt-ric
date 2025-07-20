@@ -1,0 +1,77 @@
+# Codecov configuration for O-RAN Near-RT RIC
+# https://docs.codecov.com/docs/codecov-yaml
+
+codecov:
+  require_ci_to_pass: true
+  notify:
+    wait_for_ci: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 1%
+        if_no_uploads: error
+        if_not_found: success
+        if_ci_failed: error
+      backend:
+        target: 85%
+        threshold: 2%
+        paths:
+          - "dashboard-master/dashboard-master/src/app/backend/"
+        flags:
+          - backend
+      frontend:
+        target: 75%
+        threshold: 2%
+        paths:
+          - "dashboard-master/dashboard-master/src/app/frontend/"
+          - "xAPP_dashboard-master/src/"
+        flags:
+          - frontend
+    patch:
+      default:
+        target: 70%
+        threshold: 1%
+        if_no_uploads: error
+
+parsers:
+  gcov:
+    branch_detection:
+      conditional: yes
+      loop: yes
+      method: no
+      macro: no
+
+flags:
+  backend:
+    paths:
+      - dashboard-master/dashboard-master/src/app/backend/
+    carryforward: false
+  frontend:
+    paths:
+      - dashboard-master/dashboard-master/src/app/frontend/
+      - xAPP_dashboard-master/src/
+    carryforward: false
+
+ignore:
+  - "node_modules/"
+  - "dist/"
+  - "coverage/"
+  - "**/*.spec.ts"
+  - "**/*.test.go"
+  - "**/vendor/"
+  - "**/.tmp/"
+  - "cypress/"
+  - "e2e/"
+  - "aio/test-resources/"
+  - "docs/"
+
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+  require_changes: false

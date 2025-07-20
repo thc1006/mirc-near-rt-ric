@@ -51,6 +51,18 @@ ifndef GOLANGCILINT_BINARY
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin $(GOLANGCILINT_VERSION)
 endif
 
+.PHONY: ensure-staticcheck
+ensure-staticcheck:
+	@which staticcheck > /dev/null || (echo "Installing staticcheck..." && go install honnef.co/go/tools/cmd/staticcheck@latest)
+
+.PHONY: ensure-gosec
+ensure-gosec:
+	@which gosec > /dev/null || (echo "Installing gosec..." && go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest)
+
+.PHONY: ensure-nancy
+ensure-nancy:
+	@which nancy > /dev/null || (echo "Installing nancy..." && go install github.com/sonatypecommunity/nancy@latest)
+
 .PHONY: ensure-codegen
 ensure-codegen: ensure-go
 	go get -d k8s.io/code-generator@$(CODEGEN_VERSION)
