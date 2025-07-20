@@ -106,7 +106,7 @@ jobs:
       with:
         version: ${{ env.GOLANGCI_LINT_VERSION }}
         working-directory: dashboard-master/dashboard-master
-        args: --timeout=10m --config=.golangci.yml
+        args: --timeout=15m --config=.golangci.yml
 
     - name: Run Go tests
       if: matrix.component == 'main-dashboard'
@@ -171,6 +171,7 @@ jobs:
       uses: codecov/codecov-action@v3
       if: always()
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         files: ./dashboard-master/dashboard-master/coverage.out,./xAPP_dashboard-master/coverage/lcov.info
         flags: ${{ matrix.component }}
         name: ${{ matrix.component }}-coverage

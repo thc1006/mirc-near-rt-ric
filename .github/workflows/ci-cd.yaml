@@ -58,6 +58,7 @@ jobs:
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         file: ./dashboard-master/dashboard-master/coverage.out
         flags: backend
         name: go-backend-coverage
@@ -67,7 +68,7 @@ jobs:
       with:
         version: latest
         working-directory: ./dashboard-master/dashboard-master
-        args: --timeout=10m --verbose
+        args: --timeout=15m --verbose
         skip-cache: false
         skip-pkg-cache: false
         skip-build-cache: false
@@ -133,6 +134,7 @@ jobs:
     - name: Upload test coverage
       uses: codecov/codecov-action@v3
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         file: ./xAPP_dashboard-master/coverage/lcov.info
         flags: frontend
         name: angular-frontend-coverage
@@ -168,6 +170,7 @@ jobs:
         helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
         helm repo add grafana https://grafana.github.io/helm-charts
         helm repo add bitnami https://charts.bitnami.com/bitnami
+        helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
         helm repo update
         
     - name: Validate and test Helm charts

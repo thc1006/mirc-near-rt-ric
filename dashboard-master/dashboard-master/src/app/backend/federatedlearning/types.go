@@ -792,3 +792,115 @@ const (
 	ResponseActionIsolate   ResponseAction = "isolate"
 	ResponseActionTerminate ResponseAction = "terminate"
 )
+
+// PerformanceAnomaly represents detected performance anomalies
+type PerformanceAnomaly struct {
+	Type               string            `json:"type"`
+	Severity           ThreatSeverity    `json:"severity"`
+	MetricName         string            `json:"metric_name"`
+	ExpectedValue      float64           `json:"expected_value"`
+	ActualValue        float64           `json:"actual_value"`
+	DeviationPercent   float64           `json:"deviation_percent"`
+	Threshold          float64           `json:"threshold"`
+	Duration           time.Duration     `json:"duration"`
+	DetectionTime      time.Time         `json:"detection_time"`
+	AffectedComponents []string          `json:"affected_components"`
+	Details            map[string]interface{} `json:"details"`
+}
+
+// BehaviorInconsistency represents inconsistent client behavior
+type BehaviorInconsistency struct {
+	Type               string            `json:"type"`
+	Description        string            `json:"description"`
+	InconsistencyScore float64           `json:"inconsistency_score"`
+	ExpectedPattern    interface{}       `json:"expected_pattern"`
+	ObservedPattern    interface{}       `json:"observed_pattern"`
+	DetectionTime      time.Time         `json:"detection_time"`
+	Evidence           map[string]interface{} `json:"evidence"`
+}
+
+// StatisticalOutlier represents statistical outlier detection
+type StatisticalOutlier struct {
+	MetricName         string    `json:"metric_name"`
+	Value              float64   `json:"value"`
+	ZScore             float64   `json:"z_score"`
+	Percentile         float64   `json:"percentile"`
+	IsOutlier          bool      `json:"is_outlier"`
+	OutlierThreshold   float64   `json:"outlier_threshold"`
+	DetectionMethod    string    `json:"detection_method"`
+	HistoricalData     []float64 `json:"historical_data"`
+	DetectionTime      time.Time `json:"detection_time"`
+}
+
+// NetworkAnomaly represents network-level anomalies
+type NetworkAnomaly struct {
+	Type               string            `json:"type"`
+	AnomalyScore       float64           `json:"anomaly_score"`
+	NetworkMetrics     NetworkConditions `json:"network_metrics"`
+	BaselineMetrics    NetworkConditions `json:"baseline_metrics"`
+	DeviationDetails   map[string]float64 `json:"deviation_details"`
+	DetectionTime      time.Time         `json:"detection_time"`
+	AffectedEndpoints  []string          `json:"affected_endpoints"`
+}
+
+// E2LatencyAnomaly represents E2 interface latency anomalies
+type E2LatencyAnomaly struct {
+	MeasuredLatency    float64   `json:"measured_latency_ms"`
+	ExpectedLatency    float64   `json:"expected_latency_ms"`
+	LatencyThreshold   float64   `json:"latency_threshold_ms"`
+	ExceedsThreshold   bool      `json:"exceeds_threshold"`
+	E2NodeID           string    `json:"e2_node_id"`
+	RICRequestID       string    `json:"ric_request_id"`
+	MessageType        string    `json:"message_type"`
+	DetectionTime      time.Time `json:"detection_time"`
+}
+
+// RRMTaskDeviation represents deviations in RRM task performance
+type RRMTaskDeviation struct {
+	TaskType           RRMTaskType       `json:"task_type"`
+	ExpectedMetrics    RRMTaskMetrics    `json:"expected_metrics"`
+	ActualMetrics      RRMTaskMetrics    `json:"actual_metrics"`
+	DeviationScore     float64           `json:"deviation_score"`
+	DeviationDetails   map[string]float64 `json:"deviation_details"`
+	ImpactLevel        string            `json:"impact_level"`
+	DetectionTime      time.Time         `json:"detection_time"`
+}
+
+// NetworkSliceViolation represents network slice policy violations
+type NetworkSliceViolation struct {
+	SliceID            string            `json:"slice_id"`
+	ViolationType      string            `json:"violation_type"`
+	PolicyRule         string            `json:"policy_rule"`
+	ExpectedValue      interface{}       `json:"expected_value"`
+	ActualValue        interface{}       `json:"actual_value"`
+	Severity           ThreatSeverity    `json:"severity"`
+	ViolationTime      time.Time         `json:"violation_time"`
+	Duration           time.Duration     `json:"duration"`
+	ImpactAssessment   string            `json:"impact_assessment"`
+}
+
+// HistoricalPattern represents historical behavior patterns
+type HistoricalPattern struct {
+	PatternType        string            `json:"pattern_type"`
+	PatternData        interface{}       `json:"pattern_data"`
+	ConfidenceScore    float64           `json:"confidence_score"`
+	TimeWindow         time.Duration     `json:"time_window"`
+	SampleSize         int               `json:"sample_size"`
+	LastUpdated        time.Time         `json:"last_updated"`
+	PatternMetadata    map[string]interface{} `json:"pattern_metadata"`
+}
+
+// ByzantineFTConfig represents Byzantine fault tolerance configuration
+type ByzantineFTConfig struct {
+	Enabled                bool                    `json:"enabled"`
+	DetectionMethods       []ByzantineDetectionType `json:"detection_methods"`
+	DetectionThreshold     float64                 `json:"detection_threshold"`
+	ResponseActions        []ResponseAction        `json:"response_actions"`
+	QuarantineDuration     time.Duration           `json:"quarantine_duration"`
+	MaxToleratedFaults     int                     `json:"max_tolerated_faults"`
+	MinConsensusNodes      int                     `json:"min_consensus_nodes"`
+	ValidationRounds       int                     `json:"validation_rounds"`
+	AnomalyScoreThreshold  float64                 `json:"anomaly_score_threshold"`
+	HistoryWindowSize      int                     `json:"history_window_size"`
+	MonitoringInterval     time.Duration           `json:"monitoring_interval"`
+}

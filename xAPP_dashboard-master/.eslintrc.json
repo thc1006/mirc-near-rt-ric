@@ -8,6 +8,7 @@
       "files": [
         "*.ts"
       ],
+      "parser": "@typescript-eslint/parser",
       "parserOptions": {
         "project": [
           "tsconfig.json"
@@ -15,7 +16,8 @@
         "createDefaultProgram": true
       },
       "extends": [
-        "@angular-eslint/recommended",
+        "@angular-eslint/eslint-plugin/recommended",
+        "@typescript-eslint/recommended",
         "@angular-eslint/template/process-inline-templates"
       ],
       "rules": {
