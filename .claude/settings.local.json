@@ -11,7 +11,13 @@
       "Bash(git commit:*)",
       "Bash(make:*)",
       "Bash(go mod:*)",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(npm test)",
+      "Bash(powershell:*)",
+      "Bash(npm cache clean:*)",
+      "Bash(del package-lock.json)",
+      "Bash(rm:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": []
   }

@@ -39,6 +39,31 @@ module.exports = function (config) {
     autoWatch: true,
     browsers: ['Chrome'],
     singleRun: false,
-    restartOnFileChange: true
+    restartOnFileChange: true,
+    
+    // Configuration for CI environments
+    customLaunchers: {
+      ChromeHeadless: {
+        base: 'Chrome',
+        flags: [
+          '--no-sandbox',
+          '--disable-web-security',
+          '--disable-gpu',
+          '--headless',
+          '--remote-debugging-port=9222'
+        ]
+      },
+      ChromeCI: {
+        base: 'Chrome',
+        flags: [
+          '--no-sandbox',
+          '--disable-web-security',
+          '--disable-gpu',
+          '--headless',
+          '--remote-debugging-port=9222',
+          '--disable-dev-shm-usage'
+        ]
+      }
+    }
   });
 };

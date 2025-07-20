@@ -22,12 +22,17 @@ import * as d3 from 'd3';
 
 import { YangDataService, YangNode } from '../../services/yang-data.service';
 
-interface D3Node extends d3.HierarchyNode<YangNode> {
+interface D3Node {
   x: number;
   y: number;
+  x0: number;
+  y0: number;
+  id: string;
+  depth: number;
+  data: YangNode;
   children?: D3Node[];
   _children?: D3Node[];
-  id: string;
+  parent?: D3Node;
 }
 
 @Component({
@@ -80,6 +85,10 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  getCurrentTime(): Date {
+    return new Date();
   }
 
   /**
@@ -210,7 +219,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
   private processData(rootNode: YangNode): void {
     const hierarchy = d3.hierarchy(rootNode, (d: YangNode) => d.children);
     
-    this.root = this.tree(hierarchy) as D3Node;
+    this.root = this.tree(hierarchy) as unknown as D3Node;
     this.root.x0 = this.height / 2;
     this.root.y0 = 0;
 
@@ -253,7 +262,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
   private updateTree(source?: D3Node): void {
     if (!this.root) return;
 
-    const treeData = this.tree(this.root);
+    const treeData = this.tree(this.root as any);
     const nodes = treeData.descendants();
     const links = treeData.descendants().slice(1);
 
@@ -261,10 +270,10 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
     nodes.forEach(d => d.y = d.depth * 180);
 
     // Update nodes
-    this.updateNodes(nodes, source || this.root);
+    this.updateNodes(nodes as unknown as D3Node[], source || this.root);
 
     // Update links
-    this.updateLinks(links, source || this.root);
+    this.updateLinks(links as unknown as D3Node[], source || this.root);
   }
 
   /**
@@ -312,7 +321,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
       .text(d => `= ${d.data.value}`);
 
     // Add metadata tooltip
-    nodeEnter.filter(d => d.data.metadata?.description)
+    nodeEnter.filter(d => Boolean(d.data.metadata?.description))
       .append('title')
       .text(d => `${d.data.name}\nType: ${d.data.type}\nPath: ${d.data.path}\n${d.data.metadata?.description || ''}`);
 
@@ -360,7 +369,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
     const linkEnter = link.enter().insert('path', 'g')
       .attr('class', 'link')
       .attr('d', () => {
-        const o = { x: source.x0, y: source.y0 };
+        const o = { x: source.x0 || 0, y: source.y0 || 0 };
         return this.diagonal(o, o);
       })
       .style('fill', 'none')

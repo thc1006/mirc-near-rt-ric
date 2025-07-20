@@ -168,7 +168,7 @@ export class TimeSeriesChartComponent implements OnInit, OnDestroy {
   /**
    * Update chart options and data
    */
-  private updateChartOptions(): void {
+  updateChartOptions(): void {
     const enabledMetrics = this.metrics.filter(m => m.enabled);
     
     const option: echarts.EChartsOption = {
@@ -342,36 +342,54 @@ export class TimeSeriesChartComponent implements OnInit, OnDestroy {
       ]);
 
       // Main metric series
-      series.push({
-        name: metric.name,
-        type: this.chartType === 'area' ? 'line' : this.chartType,
-        data: seriesData,
-        yAxisIndex: index > 2 ? 1 : 0,
-        smooth: true,
-        symbol: this.chartType === 'scatter' ? 'circle' : 'none',
-        symbolSize: this.chartType === 'scatter' ? 6 : 4,
-        lineStyle: {
-          color: metric.color,
-          width: 2
-        },
-        itemStyle: {
-          color: metric.color
-        },
-        areaStyle: this.chartType === 'area' ? {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: metric.color + '80' },
-            { offset: 1, color: metric.color + '10' }
-          ])
-        } : undefined,
-        emphasis: {
-          focus: 'series',
+      if (this.chartType === 'scatter') {
+        series.push({
+          name: metric.name,
+          type: 'scatter',
+          data: seriesData,
+          yAxisIndex: index > 2 ? 1 : 0,
+          symbol: 'circle',
+          symbolSize: 6,
+          itemStyle: {
+            color: metric.color
+          },
+          emphasis: {
+            focus: 'series'
+          },
+          markPoint: this.getAnomalyPoints(metric)
+        });
+      } else {
+        series.push({
+          name: metric.name,
+          type: 'line',
+          data: seriesData,
+          yAxisIndex: index > 2 ? 1 : 0,
+          smooth: true,
+          symbol: 'none',
+          symbolSize: 4,
           lineStyle: {
-            width: 3
-          }
-        },
-        markLine: this.getThresholdLines(metric),
-        markPoint: this.getAnomalyPoints(metric)
-      });
+            color: metric.color,
+            width: 2
+          },
+          itemStyle: {
+            color: metric.color
+          },
+          areaStyle: this.chartType === 'area' ? {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: metric.color + '80' },
+              { offset: 1, color: metric.color + '10' }
+            ])
+          } : undefined,
+          emphasis: {
+            focus: 'series',
+            lineStyle: {
+              width: 3
+            }
+          },
+          markLine: this.getThresholdLines(metric),
+          markPoint: this.getAnomalyPoints(metric)
+        });
+      }
 
       // Add prediction series if enabled
       if (this.showPredictions) {
@@ -455,6 +473,7 @@ export class TimeSeriesChartComponent implements OnInit, OnDestroy {
         formatter: '⚠️'
       },
       data: anomalies.map(anomaly => ({
+        name: `Anomaly: ${anomaly.severity}`,
         coord: [anomaly.timestamp.getTime(), anomaly.value],
         value: `Anomaly: ${anomaly.severity}`
       }))
