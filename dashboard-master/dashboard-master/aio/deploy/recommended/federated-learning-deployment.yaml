@@ -1,0 +1,580 @@
+# Federated Learning Enhanced Deployment Manifests for O-RAN Near-RT RIC
+# This deployment includes the optimized async FL coordinator with advanced features
+
+# Namespace for federated learning components
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: federated-learning
+  labels:
+    name: federated-learning
+    component: o-ran-near-rt-ric
+    app.kubernetes.io/name: federated-learning
+    app.kubernetes.io/part-of: near-rt-ric
+    app.kubernetes.io/version: "v1.0.0"
+---
+# ConfigMap for FL coordinator configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fl-coordinator-config
+  namespace: federated-learning
+  labels:
+    app: federated-learning
+    component: coordinator
+data:
+  config.yaml: |
+    coordinator:
+      min_client_threshold: 3
+      max_client_threshold: 50
+      straggler_timeout: "30s"
+      aggregation_window: "10s"
+      partial_aggregation_enabled: true
+      
+    aggregation_strategy:
+      default_strategy: "fedavg"
+      enable_adaptive_strategy: true
+      fedavg:
+        adaptive_weights: true
+        quality_threshold: 0.7
+        parallel_aggregation: true
+        compression_enabled: true
+        quantization_level: 8
+        rrm_task_weights:
+          radio_resource_management: 1.0
+          interference_management: 0.8
+          load_balancing: 0.9
+          mobility_management: 0.7
+        latency_weights:
+          e2_interface: 1.0
+          aggregation: 0.8
+          communication: 0.6
+        network_slice_weights:
+          urllc: 1.0
+          embb: 0.8
+          mmtc: 0.6
+      
+    client_selection:
+      default_strategy: "adaptive"
+      default_optimal_size: 10
+      min_clients: 3
+      max_clients: 50
+      performance_weights:
+        accuracy: 0.3
+        reliability: 0.25
+        latency: 0.2
+        trust: 0.25
+      adaptive_weights:
+        accuracy: 0.25
+        latency: 0.2
+        reliability: 0.2
+        trust: 0.15
+        resource_efficiency: 0.1
+        rrm_task_compatibility: 0.05
+        e2_latency: 0.05
+      rrm_task_weights:
+        radio_resource_management: 1.0
+        interference_management: 0.9
+        load_balancing: 0.8
+        mobility_management: 0.7
+      e2_latency_thresholds:
+        urllc: "1ms"
+        embb: "10ms"
+        mmtc: "100ms"
+        
+    byzantine_ft:
+      enable_statistical_detection: true
+      enable_behavior_analysis: true
+      enable_performance_analysis: true
+      enable_oran_specific_detection: true
+      trust_score_weights:
+        current: 0.3
+        behavior: 0.25
+        reputation: 0.2
+        historical: 0.15
+        e2_compliance: 0.05
+        rrm_task: 0.05
+      robust_aggregation_strategies:
+        - "krum"
+        - "bulyan"
+        - "trimmed_mean"
+      filtering_thresholds:
+        confidence: 0.7
+        severity: 0.5
+        
+    job_pool:
+      max_concurrent_jobs: 10
+      worker_pool_size: 20
+      job_queue_size: 100
+      enable_job_prioritization: true
+      enable_resource_optimization: true
+      enable_performance_monitoring: true
+      scheduling_policy: "priority"
+      priority_levels:
+        - "critical"
+        - "high"
+        - "medium"
+        - "low"
+        
+    monitoring:
+      enable_prometheus_metrics: true
+      enable_opentelemetry: true
+      enable_realtime_dashboard: true
+      metrics_collection_interval: "10s"
+      metrics_retention_period: "24h"
+      metrics_aggregation_window: "1m"
+      latency_tracker:
+        measurement_interval: "5s"
+        buffer_size: 1000
+        retention_period: "1h"
+        enable_statistical_analysis: true
+        enable_trend_analysis: true
+        e2_latency_thresholds:
+          radio_resource_management: "10ms"
+          interference_management: "15ms"
+          load_balancing: "20ms"
+          mobility_management: "25ms"
+      dashboard:
+        enable_web_ui: true
+        port: 8080
+        update_interval: "5s"
+        compression_enabled: true
+        
+    security:
+      enable_homomorphic_encryption: false
+      enable_differential_privacy: true
+      enable_secure_aggregation: false
+      session_timeout: "1h"
+      token_expiration_time: "30m"
+      privacy:
+        default_epsilon: 1.0
+        default_delta: 0.00001
+        default_sensitivity: 1.0
+        total_budget: 10.0
+        budget_allocation_strategy: "adaptive"
+        budget_refresh_interval: "24h"
+        rrm_task_privacy_budgets:
+          radio_resource_management: 3.0
+          interference_management: 2.5
+          load_balancing: 2.0
+          mobility_management: 2.5
+        network_slice_privacy_budgets:
+          urllc: 4.0
+          embb: 3.0
+          mmtc: 3.0
+---
+# Service Account for FL coordinator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fl-coordinator
+  namespace: federated-learning
+  labels:
+    app: federated-learning
+    component: coordinator
+---
+# ClusterRole for FL coordinator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fl-coordinator
+  labels:
+    app: federated-learning
+    component: coordinator
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+- apiGroups: ["federatedlearning.o-ran.org"]
+  resources: ["trainingjobs", "flclients", "globalmodels"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# ClusterRoleBinding for FL coordinator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fl-coordinator
+  labels:
+    app: federated-learning
+    component: coordinator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fl-coordinator
+subjects:
+- kind: ServiceAccount
+  name: fl-coordinator
+  namespace: federated-learning
+---
+# Deployment for FL coordinator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fl-coordinator
+  namespace: federated-learning
+  labels:
+    app: federated-learning
+    component: coordinator
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: federated-learning
+      component: coordinator
+  template:
+    metadata:
+      labels:
+        app: federated-learning
+        component: coordinator
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: fl-coordinator
+      containers:
+      - name: fl-coordinator
+        image: o-ran/fl-coordinator:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        env:
+        - name: FL_CONFIG_PATH
+          value: "/etc/fl-coordinator/config.yaml"
+        - name: FL_LOG_LEVEL
+          value: "info"
+        - name: FL_METRICS_ENABLED
+          value: "true"
+        - name: FL_SECURITY_ENABLED
+          value: "true"
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: config
+          mountPath: /etc/fl-coordinator
+          readOnly: true
+        - name: certs
+          mountPath: /etc/certs
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: config
+        configMap:
+          name: fl-coordinator-config
+      - name: certs
+        secret:
+          secretName: fl-coordinator-certs
+          optional: true
+      securityContext:
+        fsGroup: 2000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - federated-learning
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+---
+# Service for FL coordinator
+apiVersion: v1
+kind: Service
+metadata:
+  name: fl-coordinator
+  namespace: federated-learning
+  labels:
+    app: federated-learning
+    component: coordinator
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 443
+    targetPort: 8443
+    protocol: TCP
+    name: https
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: federated-learning
+    component: coordinator
+---
+# Horizontal Pod Autoscaler for FL coordinator
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fl-coordinator-hpa
+  namespace: federated-learning
+  labels:
+    app: federated-learning
+    component: coordinator
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fl-coordinator
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+---
+# Pod Disruption Budget for FL coordinator
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fl-coordinator-pdb
+  namespace: federated-learning
+  labels:
+    app: federated-learning
+    component: coordinator
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: federated-learning
+      component: coordinator
+---
+# NetworkPolicy for FL coordinator
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fl-coordinator-netpol
+  namespace: federated-learning
+  labels:
+    app: federated-learning
+    component: coordinator
+spec:
+  podSelector:
+    matchLabels:
+      app: federated-learning
+      component: coordinator
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: federated-learning
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8443
+    - protocol: TCP
+      port: 9090
+  egress:
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 6443
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+---
+# ServiceMonitor for Prometheus monitoring
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fl-coordinator
+  namespace: federated-learning
+  labels:
+    app: federated-learning
+    component: coordinator
+spec:
+  selector:
+    matchLabels:
+      app: federated-learning
+      component: coordinator
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    honorLabels: true
+  namespaceSelector:
+    matchNames:
+    - federated-learning
+---
+# PrometheusRule for FL coordinator alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fl-coordinator-alerts
+  namespace: federated-learning
+  labels:
+    app: federated-learning
+    component: coordinator
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+  - name: fl-coordinator.rules
+    rules:
+    - alert: FLCoordinatorDown
+      expr: up{job="fl-coordinator"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        component: fl-coordinator
+      annotations:
+        summary: "FL Coordinator is down"
+        description: "FL Coordinator has been down for more than 5 minutes."
+        
+    - alert: FLHighAggregationLatency
+      expr: fl_aggregation_latency_seconds{quantile="0.95"} > 30
+      for: 2m
+      labels:
+        severity: warning
+        component: fl-coordinator
+      annotations:
+        summary: "High FL aggregation latency"
+        description: "FL aggregation latency is above 30 seconds (95th percentile)."
+        
+    - alert: FLLowModelAccuracy
+      expr: fl_model_accuracy < 0.5
+      for: 5m
+      labels:
+        severity: warning
+        component: fl-coordinator
+      annotations:
+        summary: "Low FL model accuracy"
+        description: "FL model accuracy has dropped below 50%."
+        
+    - alert: FLByzantineClientDetected
+      expr: increase(fl_byzantine_detections_total[5m]) > 0
+      for: 0m
+      labels:
+        severity: warning
+        component: fl-coordinator
+      annotations:
+        summary: "Byzantine client detected"
+        description: "One or more Byzantine clients have been detected in the last 5 minutes."
+        
+    - alert: FLE2LatencyViolation
+      expr: fl_e2_latency_seconds{quantile="0.95"} > 0.010
+      for: 1m
+      labels:
+        severity: critical
+        component: fl-coordinator
+      annotations:
+        summary: "E2 interface latency violation"
+        description: "E2 interface latency has exceeded 10ms (95th percentile) for more than 1 minute."
+        
+    - alert: FLHighResourceUtilization
+      expr: fl_compute_utilization_percent > 90
+      for: 5m
+      labels:
+        severity: warning
+        component: fl-coordinator
+      annotations:
+        summary: "High FL resource utilization"
+        description: "FL compute resource utilization is above 90%."

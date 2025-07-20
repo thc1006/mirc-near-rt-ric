@@ -1,0 +1,418 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  GO_VERSION: '1.21'
+  NODE_VERSION: '18'
+  HELM_VERSION: 'v3.12.0'
+
+jobs:
+  # Job 1: Go Backend Code Quality and Testing
+  go-backend-quality:
+    name: Go Backend - Code Quality & Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ./dashboard-master/dashboard-master
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+        cache-dependency-path: ./dashboard-master/dashboard-master/go.sum
+        
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ env.GO_VERSION }}-
+          
+    - name: Download Go dependencies
+      run: |
+        go mod download
+        go mod verify
+        
+    - name: Run Go vet
+      run: go vet ./...
+      
+    - name: Run Go tests with coverage
+      run: |
+        go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+        go tool cover -html=coverage.out -o coverage.html
+        
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./dashboard-master/dashboard-master/coverage.out
+        flags: backend
+        name: go-backend-coverage
+        
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        working-directory: ./dashboard-master/dashboard-master
+        args: --timeout=10m --verbose
+        skip-cache: false
+        skip-pkg-cache: false
+        skip-build-cache: false
+        
+    - name: Build Go application
+      run: |
+        CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o bin/dashboard ./src/app/backend/main.go
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: go-backend-binary
+        path: ./dashboard-master/dashboard-master/bin/
+        retention-days: 7
+
+  # Job 2: Angular Frontend Code Quality and Build
+  angular-frontend-quality:
+    name: Angular Frontend - Code Quality & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ./xAPP_dashboard-master
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: ./xAPP_dashboard-master/package-lock.json
+        
+    - name: Install dependencies
+      run: |
+        npm ci --prefer-offline --no-audit
+        
+    - name: Check if linting is configured
+      id: check-lint
+      run: |
+        if npm run lint --silent 2>/dev/null; then
+          echo "lint-configured=true" >> $GITHUB_OUTPUT
+        else
+          echo "lint-configured=false" >> $GITHUB_OUTPUT
+        fi
+      continue-on-error: true
+      
+    - name: Configure ESLint if not present
+      if: steps.check-lint.outputs.lint-configured == 'false'
+      run: |
+        echo "Adding Angular ESLint configuration..."
+        npx ng add @angular-eslint/schematics --skip-confirmation
+        
+    - name: Run linting
+      run: npm run lint
+      
+    - name: Run unit tests
+      run: |
+        npm run test -- --watch=false --browsers=ChromeHeadless --code-coverage
+        
+    - name: Upload test coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./xAPP_dashboard-master/coverage/lcov.info
+        flags: frontend
+        name: angular-frontend-coverage
+        
+    - name: Build Angular application
+      run: |
+        npm run build -- --configuration=production --source-map=false --optimization=true
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: angular-frontend-dist
+        path: ./xAPP_dashboard-master/dist/
+        retention-days: 7
+
+  # Job 3: Helm Charts Testing and Validation
+  helm-charts-test:
+    name: Helm Charts - Test & Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: ${{ env.HELM_VERSION }}
+        
+    - name: Add Helm repositories
+      run: |
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm repo add grafana https://grafana.github.io/helm-charts
+        helm repo add bitnami https://charts.bitnami.com/bitnami
+        helm repo update
+        
+    - name: Validate and test Helm charts
+      run: |
+        # Find all Chart.yaml files and process each chart
+        find . -name "Chart.yaml" -type f | while read chart_file; do
+          chart_dir=$(dirname "$chart_file")
+          echo "Processing Helm chart in: $chart_dir"
+          
+          cd "$chart_dir"
+          
+          # Build dependencies if Chart.yaml has dependencies
+          if grep -q "dependencies:" Chart.yaml; then
+            echo "Building dependencies for chart in $chart_dir"
+            helm dependency build
+          fi
+          
+          # Lint the chart
+          echo "Linting chart in $chart_dir"
+          helm lint .
+          
+          # Template the chart to verify it renders correctly
+          echo "Templating chart in $chart_dir"
+          helm template test-release . --debug --dry-run
+          
+          # Return to root directory for next iteration
+          cd - > /dev/null
+        done
+        
+    - name: Package Helm charts
+      run: |
+        mkdir -p helm-packages
+        find . -name "Chart.yaml" -type f | while read chart_file; do
+          chart_dir=$(dirname "$chart_file")
+          echo "Packaging chart from: $chart_dir"
+          helm package "$chart_dir" -d helm-packages/
+        done
+        
+    - name: Upload Helm packages
+      uses: actions/upload-artifact@v3
+      with:
+        name: helm-charts
+        path: helm-packages/
+        retention-days: 7
+
+  # Job 4: Security Scanning
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [go-backend-quality, angular-frontend-quality]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+        
+    - name: Dependency vulnerability scan (Go)
+      run: |
+        cd ./dashboard-master/dashboard-master
+        go list -json -deps ./... | nancy sleuth
+      continue-on-error: true
+      
+    - name: Dependency vulnerability scan (npm)
+      run: |
+        cd ./xAPP_dashboard-master
+        npm audit --audit-level=high
+      continue-on-error: true
+
+  # Job 5: Integration Tests
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [go-backend-quality, angular-frontend-quality]
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download backend artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: go-backend-binary
+        path: ./bin/
+        
+    - name: Download frontend artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: angular-frontend-dist
+        path: ./dist/
+        
+    - name: Make binary executable
+      run: chmod +x ./bin/dashboard
+      
+    - name: Run integration tests
+      env:
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/testdb
+        REDIS_URL: redis://localhost:6379
+      run: |
+        # Start the application in background
+        ./bin/dashboard --config=test-config.yaml &
+        APP_PID=$!
+        
+        # Wait for application to start
+        sleep 10
+        
+        # Run integration tests
+        curl -f http://localhost:8080/api/health || exit 1
+        curl -f http://localhost:8080/api/ready || exit 1
+        
+        # Cleanup
+        kill $APP_PID
+        
+  # Job 6: Build and Push Container Images
+  container-build:
+    name: Build & Push Container Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [integration-tests, helm-charts-test, security-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: go-backend-binary
+        path: ./artifacts/backend/
+        
+    - name: Download frontend artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: angular-frontend-dist
+        path: ./artifacts/frontend/
+        
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BACKEND_BINARY_PATH=./artifacts/backend/dashboard
+          FRONTEND_DIST_PATH=./artifacts/frontend
+
+  # Job 7: Deploy to Development Environment
+  deploy-dev:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [container-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    environment: development
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download Helm charts
+      uses: actions/download-artifact@v3
+      with:
+        name: helm-charts
+        path: ./helm-charts/
+        
+    - name: Set up kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
+        
+    - name: Deploy with Helm
+      run: |
+        helm upgrade --install near-rt-ric ./helm-charts/near-rt-ric-*.tgz \
+          --namespace=near-rt-ric-dev \
+          --create-namespace \
+          --set image.tag=${{ github.sha }} \
+          --set environment=development \
+          --wait --timeout=10m
+          
+    - name: Verify deployment
+      run: |
+        kubectl rollout status deployment/near-rt-ric -n near-rt-ric-dev --timeout=300s
+        kubectl get pods -n near-rt-ric-dev
