@@ -380,6 +380,10 @@ func (pm *PerformanceMonitor) RecordRoundMetrics(jobID string, roundNumber int64
 			slog.String("error", err.Error()))
 	}
 
+	// Auto-adjust parameters
+	// TODO: Get job from job store.
+	// pm.parameterTuner.Tune(job, &PerformanceMetrics{})
+
 	// Check for threshold violations
 	if violations := pm.checkThresholdViolations(jobID, metrics); len(violations) > 0 {
 		for _, violation := range violations {
