@@ -48,6 +48,107 @@ const (
 	RRMTaskInterferenceManagement RRMTaskType = "interference_management"
 )
 
+// SecurityAction defines actions to take for security threats
+type SecurityAction string
+
+const (
+	SecurityActionAllow      SecurityAction = "allow"
+	SecurityActionMonitor    SecurityAction = "monitor"
+	SecurityActionMitigate   SecurityAction = "mitigate"
+	SecurityActionQuarantine SecurityAction = "quarantine"
+	SecurityActionRemove     SecurityAction = "remove"
+	SecurityActionBlock      SecurityAction = "block"
+)
+
+// RiskLevel defines severity levels for security risks
+type RiskLevel string
+
+const (
+	RiskLevelLow      RiskLevel = "low"
+	RiskLevelMedium   RiskLevel = "medium"
+	RiskLevelHigh     RiskLevel = "high"
+	RiskLevelCritical RiskLevel = "critical"
+)
+
+// ThreatLevel defines overall threat assessment levels
+type ThreatLevel string
+
+const (
+	ThreatLevelMinimal   ThreatLevel = "minimal"
+	ThreatLevelLow       ThreatLevel = "low"
+	ThreatLevelModerate  ThreatLevel = "moderate"
+	ThreatLevelHigh      ThreatLevel = "high"
+	ThreatLevelSevere    ThreatLevel = "severe"
+	ThreatLevelCritical  ThreatLevel = "critical"
+)
+
+// SecurityFinding represents a specific security issue or observation
+type SecurityFinding struct {
+	ID          string                 `json:"id"`
+	Title       string                 `json:"title"`
+	Description string                 `json:"description"`
+	Severity    RiskLevel              `json:"severity"`
+	Category    string                 `json:"category"`
+	Evidence    map[string]interface{} `json:"evidence"`
+	Timestamp   time.Time              `json:"timestamp"`
+	Remediation string                 `json:"remediation"`
+}
+
+// MonitoringRequest defines monitoring requirements
+type MonitoringRequest struct {
+	TargetID    string        `json:"target_id"`
+	Metrics     []string      `json:"metrics"`
+	Frequency   time.Duration `json:"frequency"`
+	Duration    time.Duration `json:"duration"`
+	Thresholds  map[string]float64 `json:"thresholds"`
+	AlertRules  []string      `json:"alert_rules"`
+}
+
+// ClientTrainingHistory stores historical training data for clients
+type ClientTrainingHistory struct {
+	ClientID           string                    `json:"client_id"`
+	RegistrationTime   time.Time                 `json:"registration_time"`
+	LastActivityTime   time.Time                 `json:"last_activity_time"`
+	TotalRounds        int                       `json:"total_rounds"`
+	SuccessfulRounds   int                       `json:"successful_rounds"`
+	FailedRounds       int                       `json:"failed_rounds"`
+	AverageLatency     time.Duration             `json:"average_latency"`
+	DataQuality        float64                   `json:"data_quality"`
+	ModelAccuracy      float64                   `json:"model_accuracy"`
+	ReputationScore    float64                   `json:"reputation_score"`
+	TrustScore         float64                   `json:"trust_score"`
+	BehaviorPattern    *BehaviorPattern          `json:"behavior_pattern"`
+	SecurityIncidents  []*SecurityIncident       `json:"security_incidents"`
+	PerformanceMetrics *ClientPerformanceMetrics `json:"performance_metrics"`
+}
+
+// SecurityIncident represents a security-related incident
+type SecurityIncident struct {
+	ID            string                 `json:"id"`
+	ClientID      string                 `json:"client_id"`
+	IncidentType  string                 `json:"incident_type"`
+	Severity      RiskLevel              `json:"severity"`
+	Description   string                 `json:"description"`
+	Timestamp     time.Time              `json:"timestamp"`
+	Resolved      bool                   `json:"resolved"`
+	ResolutionTime *time.Time            `json:"resolution_time,omitempty"`
+	Evidence      map[string]interface{} `json:"evidence"`
+	Actions       []SecurityAction       `json:"actions"`
+}
+
+// ClientPerformanceMetrics tracks client performance over time
+type ClientPerformanceMetrics struct {
+	AverageLatency       time.Duration `json:"average_latency"`
+	P95Latency          time.Duration `json:"p95_latency"`
+	P99Latency          time.Duration `json:"p99_latency"`
+	Throughput          float64       `json:"throughput"`
+	ErrorRate           float64       `json:"error_rate"`
+	Availability        float64       `json:"availability"`
+	ResourceUtilization float64       `json:"resource_utilization"`
+	DataQualityScore    float64       `json:"data_quality_score"`
+	ModelConvergence    float64       `json:"model_convergence"`
+}
+
 // FLClientStatus represents the current status of a federated learning client
 type FLClientStatus string
 
@@ -343,15 +444,7 @@ type ResourceUsageMetrics struct {
 	PowerConsumptionW  float64 `json:"power_consumption_watts" bson:"power_consumption_watts"`
 }
 
-// SecurityIncident represents a security-related event during training
-type SecurityIncident struct {
-	Type        string            `json:"type" bson:"type"`
-	Severity    string            `json:"severity" bson:"severity"`
-	ClientID    string            `json:"client_id" bson:"client_id"`
-	Description string            `json:"description" bson:"description"`
-	Timestamp   time.Time         `json:"timestamp" bson:"timestamp"`
-	Metadata    map[string]string `json:"metadata" bson:"metadata"`
-}
+// SecurityIncident definition moved above to avoid duplication
 
 // TrainingJob represents a federated learning training job
 type TrainingJob struct {
@@ -912,4 +1005,431 @@ type ExternalValidationResult struct {
 	Timestamp          time.Time         `json:"timestamp"`
 	ErrorMessage       string            `json:"error_message,omitempty"`
 }
+
+// E2InterfaceContext represents O-RAN E2 interface context for federated learning
+type E2InterfaceContext struct {
+	// E2 Node identification
+	E2NodeID           string            `json:"e2_node_id"`
+	GlobalE2NodeID     *GlobalE2NodeID   `json:"global_e2_node_id"`
+	E2NodeType         E2NodeType        `json:"e2_node_type"`
+	
+	// E2 Connection details
+	ConnectionState    E2ConnectionState `json:"connection_state"`
+	E2SetupComplete    bool              `json:"e2_setup_complete"`
+	LastHeartbeat      time.Time         `json:"last_heartbeat"`
+	
+	// RAN Functions
+	SupportedRANFunctions []RANFunction   `json:"supported_ran_functions"`
+	SubscribedServices    []E2Subscription `json:"subscribed_services"`
+	
+	// Performance metrics
+	LatencyMetrics     *E2LatencyMetrics `json:"latency_metrics"`
+	MessageStats       *E2MessageStats   `json:"message_stats"`
+	
+	// Security context
+	AuthenticationData *E2AuthContext    `json:"auth_context"`
+	EncryptionEnabled  bool              `json:"encryption_enabled"`
+	
+	// Federated Learning specific
+	FLParticipation    bool              `json:"fl_participation"`
+	ModelSyncStatus    string            `json:"model_sync_status"`
+	LastModelUpdate    time.Time         `json:"last_model_update"`
+}
+
+// GlobalE2NodeID represents global E2 node identifier
+type GlobalE2NodeID struct {
+	PLMNIdentity   string `json:"plmn_identity"`
+	ENBIdentity    string `json:"enb_identity,omitempty"`
+	GNBIdentity    string `json:"gnb_identity,omitempty"`
+	NGENBIdentity  string `json:"ng_enb_identity,omitempty"`
+}
+
+// E2NodeType represents the type of E2 node
+type E2NodeType string
+
+const (
+	E2NodeTypeENB    E2NodeType = "enb"
+	E2NodeTypeGNB    E2NodeType = "gnb"
+	E2NodeTypeNGENB  E2NodeType = "ng_enb"
+	E2NodeTypeCUCP   E2NodeType = "cu_cp"
+	E2NodeTypeCUUP   E2NodeType = "cu_up"
+	E2NodeTypeDU     E2NodeType = "du"
+)
+
+// E2ConnectionState represents E2 connection state
+type E2ConnectionState string
+
+const (
+	E2ConnectionStateConnected     E2ConnectionState = "connected"
+	E2ConnectionStateDisconnected  E2ConnectionState = "disconnected"
+	E2ConnectionStateConnecting    E2ConnectionState = "connecting"
+	E2ConnectionStateReconnecting  E2ConnectionState = "reconnecting"
+	E2ConnectionStateSetupFailed   E2ConnectionState = "setup_failed"
+)
+
+// RANFunction represents a RAN function supported by E2 node
+type RANFunction struct {
+	RANFunctionID          int64             `json:"ran_function_id"`
+	RANFunctionDefinition  string            `json:"ran_function_definition"`
+	RANFunctionRevision    int32             `json:"ran_function_revision"`
+	RANFunctionOID         string            `json:"ran_function_oid"`
+	Description            string            `json:"description"`
+	Capabilities           []string          `json:"capabilities"`
+}
+
+// E2Subscription represents an E2 subscription
+type E2Subscription struct {
+	SubscriptionID     string            `json:"subscription_id"`
+	RANFunctionID      int64             `json:"ran_function_id"`
+	EventTrigger       *EventTrigger     `json:"event_trigger"`
+	Actions            []E2Action        `json:"actions"`
+	CreatedAt          time.Time         `json:"created_at"`
+	Status             string            `json:"status"`
+}
+
+// EventTrigger represents E2 event trigger definition
+type EventTrigger struct {
+	TriggerType        string            `json:"trigger_type"`
+	ReportingPeriod    time.Duration     `json:"reporting_period"`
+	TriggerConditions  map[string]interface{} `json:"trigger_conditions"`
+}
+
+// E2Action represents E2 action definition
+type E2Action struct {
+	ActionID          int64             `json:"action_id"`
+	ActionType        string            `json:"action_type"`
+	ActionDefinition  interface{}       `json:"action_definition"`
+	SubsequentActions []E2Action        `json:"subsequent_actions"`
+}
+
+// E2LatencyMetrics represents E2 interface latency metrics
+type E2LatencyMetrics struct {
+	SetupLatency       float64           `json:"setup_latency_ms"`
+	SubscriptionLatency float64          `json:"subscription_latency_ms"`
+	IndicationLatency  float64           `json:"indication_latency_ms"`
+	ControlLatency     float64           `json:"control_latency_ms"`
+	AverageRTT         float64           `json:"average_rtt_ms"`
+	MaxRTT             float64           `json:"max_rtt_ms"`
+	MinRTT             float64           `json:"min_rtt_ms"`
+}
+
+// E2MessageStats represents E2 message statistics
+type E2MessageStats struct {
+	TotalMessagesSent     int64             `json:"total_messages_sent"`
+	TotalMessagesReceived int64             `json:"total_messages_received"`
+	SuccessfulResponses   int64             `json:"successful_responses"`
+	FailedResponses       int64             `json:"failed_responses"`
+	TimeoutErrors         int64             `json:"timeout_errors"`
+	MessageBreakdown      map[string]int64  `json:"message_breakdown"`
+	LastResetTime         time.Time         `json:"last_reset_time"`
+}
+
+// E2AuthContext represents E2 authentication context
+type E2AuthContext struct {
+	AuthMethod         string            `json:"auth_method"`
+	CertificateInfo    *CertificateInfo  `json:"certificate_info"`
+	TokenValidUntil    time.Time         `json:"token_valid_until"`
+	SecurityLevel      string            `json:"security_level"`
+	AuthorizedActions  []string          `json:"authorized_actions"`
+}
+
+// CertificateInfo represents certificate information
+type CertificateInfo struct {
+	Subject            string            `json:"subject"`
+	Issuer             string            `json:"issuer"`
+	SerialNumber       string            `json:"serial_number"`
+	ValidFrom          time.Time         `json:"valid_from"`
+	ValidTo            time.Time         `json:"valid_to"`
+	Fingerprint        string            `json:"fingerprint"`
+}
+
+// StatisticalTestResult represents results from statistical tests
+type StatisticalTestResult struct {
+	TestName           string            `json:"test_name"`
+	TestType           string            `json:"test_type"`
+	PValue             float64           `json:"p_value"`
+	TestStatistic      float64           `json:"test_statistic"`
+	CriticalValue      float64           `json:"critical_value"`
+	IsSignificant      bool              `json:"is_significant"`
+	ConfidenceLevel    float64           `json:"confidence_level"`
+	TestResult         string            `json:"test_result"`
+	AdditionalInfo     map[string]interface{} `json:"additional_info"`
+}
+
+// BehaviorPattern represents detected behavior patterns
+type BehaviorPattern struct {
+	PatternID          string            `json:"pattern_id"`
+	PatternType        string            `json:"pattern_type"`
+	Description        string            `json:"description"`
+	Frequency          float64           `json:"frequency"`
+	Confidence         float64           `json:"confidence"`
+	FirstObserved      time.Time         `json:"first_observed"`
+	LastObserved       time.Time         `json:"last_observed"`
+	ObservationCount   int64             `json:"observation_count"`
+	PatternData        interface{}       `json:"pattern_data"`
+	RelatedPatterns    []string          `json:"related_patterns"`
+}
+
+// AnomalyDetector interface for anomaly detection
+type AnomalyDetector interface {
+	DetectAnomalies(data interface{}) ([]Anomaly, error)
+	UpdateBaseline(data interface{}) error
+	GetThreshold() float64
+	SetThreshold(threshold float64)
+}
+
+// ClientBehaviorAnalyzer analyzes client behavior patterns
+type ClientBehaviorAnalyzer interface {
+	AnalyzeBehavior(clientID string, data interface{}) (*BehaviorAnalysis, error)
+	GetBehaviorProfile(clientID string) (*BehaviorProfile, error)
+	UpdateBehaviorModel(clientID string, data interface{}) error
+}
+
+// StatisticalAnomalyDetector performs statistical anomaly detection
+type StatisticalAnomalyDetector interface {
+	DetectStatisticalAnomalies(data []float64) ([]StatisticalAnomaly, error)
+	PerformTest(testType string, data []float64) (*StatisticalTestResult, error)
+	GetStatistics(data []float64) (*DescriptiveStatistics, error)
+}
+
+// Anomaly represents a detected anomaly
+type Anomaly struct {
+	AnomalyID          string            `json:"anomaly_id"`
+	AnomalyType        string            `json:"anomaly_type"`
+	Severity           ThreatSeverity    `json:"severity"`
+	Score              float64           `json:"score"`
+	Description        string            `json:"description"`
+	DetectedAt         time.Time         `json:"detected_at"`
+	AffectedMetrics    []string          `json:"affected_metrics"`
+	Evidence           interface{}       `json:"evidence"`
+}
+
+// BehaviorAnalysis represents behavior analysis results
+type BehaviorAnalysis struct {
+	ClientID           string            `json:"client_id"`
+	AnalysisTime       time.Time         `json:"analysis_time"`
+	BehaviorScore      float64           `json:"behavior_score"`
+	Deviations         []BehaviorDeviation `json:"deviations"`
+	Patterns           []BehaviorPattern `json:"patterns"`
+	TrustScoreImpact   float64           `json:"trust_score_impact"`
+}
+
+// BehaviorProfile represents a client's behavior profile
+type BehaviorProfile struct {
+	ClientID           string            `json:"client_id"`
+	ProfileVersion     int               `json:"profile_version"`
+	CreatedAt          time.Time         `json:"created_at"`
+	LastUpdated        time.Time         `json:"last_updated"`
+	BaselineMetrics    map[string]float64 `json:"baseline_metrics"`
+	TypicalPatterns    []BehaviorPattern `json:"typical_patterns"`
+	Preferences        map[string]interface{} `json:"preferences"`
+}
+
+// BehaviorDeviation represents deviation from normal behavior
+type BehaviorDeviation struct {
+	MetricName         string            `json:"metric_name"`
+	ExpectedValue      float64           `json:"expected_value"`
+	ActualValue        float64           `json:"actual_value"`
+	DeviationPercent   float64           `json:"deviation_percent"`
+	Significance       float64           `json:"significance"`
+	Impact             string            `json:"impact"`
+}
+
+// StatisticalAnomaly represents statistically detected anomaly
+type StatisticalAnomaly struct {
+	DataPoint          float64           `json:"data_point"`
+	ZScore             float64           `json:"z_score"`
+	PValue             float64           `json:"p_value"`
+	IsOutlier          bool              `json:"is_outlier"`
+	OutlierType        string            `json:"outlier_type"`
+	ConfidenceInterval []float64         `json:"confidence_interval"`
+}
+
+// DescriptiveStatistics represents basic statistical measures
+type DescriptiveStatistics struct {
+	Count              int               `json:"count"`
+	Mean               float64           `json:"mean"`
+	Median             float64           `json:"median"`
+	Mode               []float64         `json:"mode"`
+	StandardDeviation  float64           `json:"standard_deviation"`
+	Variance           float64           `json:"variance"`
+	Minimum            float64           `json:"minimum"`
+	Maximum            float64           `json:"maximum"`
+	Range              float64           `json:"range"`
+	Quartiles          []float64         `json:"quartiles"`
+	InterquartileRange float64           `json:"interquartile_range"`
+	Skewness           float64           `json:"skewness"`
+	Kurtosis           float64           `json:"kurtosis"`
+}
+
+// AsyncTrainingScheduler manages asynchronous training schedules
+type AsyncTrainingScheduler struct {
+	SchedulerID    string            `json:"scheduler_id"`
+	ActiveJobs     map[string]*TrainingJob `json:"active_jobs"`
+	QueuedJobs     []*TrainingJob    `json:"queued_jobs"`
+	MaxConcurrent  int               `json:"max_concurrent"`
+	SchedulingMode string            `json:"scheduling_mode"`
+}
+
+// ResourceOrchestrator manages computational resources
+type ResourceOrchestrator struct {
+	OrchestratorID string                    `json:"orchestrator_id"`
+	AvailableNodes map[string]*ComputeNode   `json:"available_nodes"`
+	ResourcePool   *ResourcePool             `json:"resource_pool"`
+	AllocationPolicy string                  `json:"allocation_policy"`
+}
+
+// ComputeNode represents a computational resource
+type ComputeNode struct {
+	NodeID       string            `json:"node_id"`
+	NodeType     string            `json:"node_type"`
+	Status       string            `json:"status"`
+	Capabilities map[string]interface{} `json:"capabilities"`
+	Location     string            `json:"location"`
+}
+
+// ResourcePool definition exists in resource_management.go
+
+// AdaptiveThresholdManager manages dynamic thresholds
+type AdaptiveThresholdManager struct {
+	ManagerID      string                    `json:"manager_id"`
+	Thresholds     map[string]*DynamicThreshold `json:"thresholds"`
+	AdaptationRate float64                   `json:"adaptation_rate"`
+	HistoryWindow  time.Duration             `json:"history_window"`
+}
+
+// DynamicThreshold represents an adaptive threshold
+type DynamicThreshold struct {
+	Name         string    `json:"name"`
+	Value        float64   `json:"value"`
+	MinValue     float64   `json:"min_value"`
+	MaxValue     float64   `json:"max_value"`
+	LastUpdated  time.Time `json:"last_updated"`
+	UpdateCount  int       `json:"update_count"`
+}
+
+// ModelCompressor handles model compression operations
+type ModelCompressor struct {
+	CompressorID     string            `json:"compressor_id"`
+	CompressionType  string            `json:"compression_type"`
+	CompressionRatio float64           `json:"compression_ratio"`
+	QualityThreshold float64           `json:"quality_threshold"`
+}
+
+// CommunicationOptimizer optimizes client-server communication
+type CommunicationOptimizer struct {
+	OptimizerID      string            `json:"optimizer_id"`
+	OptimizationMode string            `json:"optimization_mode"`
+	BandwidthLimit   float64           `json:"bandwidth_limit"`
+	CompressionLevel int               `json:"compression_level"`
+}
+
+// GradientComputationEngine handles gradient calculations
+type GradientComputationEngine struct {
+	EngineID         string            `json:"engine_id"`
+	ComputationMode  string            `json:"computation_mode"`
+	BatchSize        int               `json:"batch_size"`
+	LearningRate     float64           `json:"learning_rate"`
+}
+
+// ClientBehaviorMetrics tracks client behavior patterns
+type ClientBehaviorMetrics struct {
+	ClientID            string        `json:"client_id"`
+	AverageResponseTime time.Duration `json:"average_response_time"`
+	SuccessRate         float64       `json:"success_rate"`
+	DataQuality         float64       `json:"data_quality"`
+	ModelAccuracy       float64       `json:"model_accuracy"`
+	BehaviorConsistency float64       `json:"behavior_consistency"`
+	AnomalyScore        float64       `json:"anomaly_score"`
+}
+
+// SecurityMetrics aggregates security-related metrics
+type SecurityMetrics struct {
+	TotalThreatDetections   int                    `json:"total_threat_detections"`
+	CriticalThreats        int                    `json:"critical_threats"`
+	ResolvedIncidents      int                    `json:"resolved_incidents"`
+	AverageTrustScore      float64                `json:"average_trust_score"`
+	SecurityPolicyVersion string                 `json:"security_policy_version"`
+	LastSecurityScan       time.Time              `json:"last_security_scan"`
+	VulnerabilityCount     map[string]int         `json:"vulnerability_count"`
+}
+
+// AsyncTrainingRequest represents an asynchronous training request
+type AsyncTrainingRequest struct {
+	RequestID       string                 `json:"request_id"`
+	ClientID        string                 `json:"client_id"`
+	ModelID         string                 `json:"model_id"`
+	TrainingParams  map[string]interface{} `json:"training_params"`
+	Priority        int                    `json:"priority"`
+	SubmissionTime  time.Time              `json:"submission_time"`
+	ExpectedDuration time.Duration         `json:"expected_duration"`
+}
+
+// Additional types for resource management
+type ResourcePoolConfig struct {
+	PoolID          string `json:"pool_id"`
+	MaxCPU          float64 `json:"max_cpu"`
+	MaxMemory       float64 `json:"max_memory"`
+	MaxGPU          int     `json:"max_gpu"`
+}
+
+type ResourceCapacity struct {
+	CPU    float64 `json:"cpu"`
+	Memory float64 `json:"memory"`
+	GPU    int     `json:"gpu"`
+}
+
+type UtilizationHistory struct {
+	WindowSize time.Duration              `json:"window_size"`
+	History    []ResourceUtilizationPoint `json:"history"`
+}
+
+type ResourceUtilizationPoint struct {
+	Timestamp   time.Time         `json:"timestamp"`
+	CPUUsage    float64          `json:"cpu_usage"`
+	MemoryUsage float64          `json:"memory_usage"`
+	GPUUsage    float64          `json:"gpu_usage"`
+}
+
+type AutoScaler struct {
+	ScalerID     string  `json:"scaler_id"`
+	MinReplicas  int     `json:"min_replicas"`
+	MaxReplicas  int     `json:"max_replicas"`
+	TargetCPU    float64 `json:"target_cpu"`
+}
+
+type ScalePredictor struct {
+	PredictorID string `json:"predictor_id"`
+	Algorithm   string `json:"algorithm"`
+}
+
+type CostOptimizer struct {
+	OptimizerID string `json:"optimizer_id"`
+	Strategy    string `json:"strategy"`
+}
+
+type QuotaManager struct {
+	ManagerID string                    `json:"manager_id"`
+	Quotas    map[string]*ResourceQuota `json:"quotas"`
+}
+
+type ResourceQuota struct {
+	QuotaID     string  `json:"quota_id"`
+	MaxCPU      float64 `json:"max_cpu"`
+	MaxMemory   float64 `json:"max_memory"`
+	MaxGPU      int     `json:"max_gpu"`
+}
+
+type FairnessController struct {
+	ControllerID string `json:"controller_id"`
+	Algorithm    string `json:"algorithm"`
+}
+
+type AllocationPolicy string
+
+const (
+	AllocationPolicyFIFO      AllocationPolicy = "fifo"
+	AllocationPolicyPriority  AllocationPolicy = "priority"
+	AllocationPolicyFairShare AllocationPolicy = "fair_share"
+)
 

@@ -24,7 +24,9 @@
       "Bash(helm lint:*)",
       "Bash(grep:*)",
       "Bash(npm run lint:*)",
-      "Bash(npm audit:*)"
+      "Bash(npm audit:*)",
+      "Bash(go list:*)",
+      "Bash(goimports:*)"
     ],
     "deny": []
   }

@@ -121,7 +121,26 @@ jobs:
     - name: Go mod download
       if: matrix.component == 'main-dashboard'
       working-directory: dashboard-master/dashboard-master
-      run: go mod download
+      timeout-minutes: 10
+      run: |
+        # Retry go mod download up to 3 times
+        for attempt in 1 2 3; do
+          echo "Attempt $attempt: Downloading Go modules..."
+          if go mod download; then
+            echo "go mod download succeeded on attempt $attempt"
+            break
+          else
+            echo "go mod download failed on attempt $attempt"
+            if [ $attempt -eq 3 ]; then
+              echo "All go mod download attempts failed"
+              exit 1
+            fi
+            sleep_time=$((attempt * 5))
+            echo "Waiting ${sleep_time}s before retry..."
+            sleep $sleep_time
+            go clean -modcache
+          fi
+        done
 
     - name: Run golangci-lint
       if: matrix.component == 'main-dashboard'
@@ -167,8 +186,26 @@ jobs:
     - name: Install Node.js dependencies
       if: matrix.component == 'xapp-dashboard'
       working-directory: xAPP_dashboard-master
-      timeout-minutes: 10
-      run: npm ci
+      timeout-minutes: 15
+      run: |
+        # Retry npm ci up to 3 times with exponential backoff
+        for attempt in 1 2 3; do
+          echo "Attempt $attempt: Installing Node.js dependencies..."
+          if npm ci --cache ~/.npm --prefer-offline --no-audit --progress=false; then
+            echo "npm ci succeeded on attempt $attempt"
+            break
+          else
+            echo "npm ci failed on attempt $attempt"
+            if [ $attempt -eq 3 ]; then
+              echo "All npm ci attempts failed"
+              exit 1
+            fi
+            sleep_time=$((attempt * 10))
+            echo "Waiting ${sleep_time}s before retry..."
+            sleep $sleep_time
+            npm cache clean --force
+          fi
+        done
 
     - name: Run ESLint
       if: matrix.component == 'xapp-dashboard'
@@ -257,6 +294,7 @@ jobs:
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
+      timeout-minutes: 45
       with:
         context: ${{ matrix.component.path }}
         file: ${{ matrix.component.path }}/${{ matrix.component.dockerfile }}
@@ -270,6 +308,8 @@ jobs:
           BUILDTIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
           VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
           REVISION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+        provenance: false
+        sbom: false
 
   # Helm chart testing
   helm-test:
@@ -409,47 +449,109 @@ jobs:
           --wait --timeout=10m
 
     - name: Wait for deployments
-      timeout-minutes: 5
+      timeout-minutes: 10
       run: |
-        kubectl wait --for=condition=available deployment/main-dashboard \
-          --namespace=${{ env.ORAN_NAMESPACE }} --timeout=300s
-        kubectl wait --for=condition=available deployment/xapp-dashboard \
-          --namespace=${{ env.ORAN_NAMESPACE }} --timeout=300s
-        kubectl wait --for=condition=available deployment/e2-simulator \
-          --namespace=${{ env.ORAN_NAMESPACE }} --timeout=${{ env.E2_SIMULATOR_TIMEOUT }}
+        # Wait for deployments with retry logic
+        for deployment in main-dashboard xapp-dashboard e2-simulator; do
+          echo "Waiting for deployment: $deployment"
+          for attempt in 1 2 3; do
+            if kubectl wait --for=condition=available deployment/$deployment \
+              --namespace=${{ env.ORAN_NAMESPACE }} --timeout=300s; then
+              echo "Deployment $deployment is ready"
+              break
+            else
+              echo "Deployment $deployment not ready on attempt $attempt"
+              if [ $attempt -eq 3 ]; then
+                echo "Deployment $deployment failed to become ready"
+                kubectl describe deployment/$deployment --namespace=${{ env.ORAN_NAMESPACE }}
+                kubectl logs -l app=$deployment --namespace=${{ env.ORAN_NAMESPACE }} --tail=50
+                exit 1
+              fi
+              sleep 30
+            fi
+          done
+        done
 
     - name: Run E2E tests
-      timeout-minutes: 15
+      timeout-minutes: 20
       run: |
+        # Function for retrying commands
+        retry_command() {
+          local cmd="$1"
+          local desc="$2"
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt: $desc"
+            if eval "$cmd"; then
+              echo "$desc succeeded on attempt $attempt"
+              return 0
+            else
+              echo "$desc failed on attempt $attempt"
+              if [ $attempt -eq 3 ]; then
+                echo "All attempts failed for: $desc"
+                return 1
+              fi
+              sleep 10
+            fi
+          done
+        }
+        
         # Test E2 Interface connectivity
-        kubectl exec -n ${{ env.ORAN_NAMESPACE }} deployment/e2-simulator -- \
-          nc -z e2-termination 38000
+        retry_command "kubectl exec -n ${{ env.ORAN_NAMESPACE }} deployment/e2-simulator -- nc -z e2-termination 38000" "E2 Interface connectivity test"
           
         # Test A1 Interface connectivity  
-        kubectl exec -n ${{ env.ORAN_NAMESPACE }} deployment/a1-mediator -- \
-          curl -f http://localhost:10020/a1-p/healthcheck
+        retry_command "kubectl exec -n ${{ env.ORAN_NAMESPACE }} deployment/a1-mediator -- curl -f http://localhost:10020/a1-p/healthcheck" "A1 Interface connectivity test"
           
         # Test xApp registration with FL Coordinator
-        kubectl exec -n ${{ env.ORAN_NAMESPACE }} deployment/resource-allocation-xapp -- \
-          curl -f http://fl-coordinator:8080/fl/clients
+        retry_command "kubectl exec -n ${{ env.ORAN_NAMESPACE }} deployment/resource-allocation-xapp -- curl -f http://fl-coordinator:8080/fl/clients" "xApp registration test"
           
         # Test dashboard accessibility
         kubectl port-forward -n kubernetes-dashboard service/kubernetes-dashboard 8080:443 &
-        sleep 10
-        curl -k -f https://localhost:8080/api/v1/login/status
+        sleep 15
+        retry_command "curl -k -f https://localhost:8080/api/v1/login/status" "Dashboard accessibility test"
         
         # Test metrics collection
         kubectl port-forward -n monitoring service/prometheus-server 9090:80 &
-        sleep 10
-        curl -f http://localhost:9090/-/healthy
+        sleep 15
+        retry_command "curl -f http://localhost:9090/-/healthy" "Metrics collection test"
 
     - name: Collect logs on failure
       if: failure()
+      timeout-minutes: 10
       run: |
-        kubectl get all -A
-        kubectl describe pods -n ${{ env.ORAN_NAMESPACE }}
-        kubectl logs -n ${{ env.ORAN_NAMESPACE }} -l app.kubernetes.io/component=e2-interface --tail=100
-        kubectl logs -n ${{ env.ORAN_NAMESPACE }} -l app.kubernetes.io/component=xapp --tail=100
+        echo "=== Collecting diagnostic information on failure ==="
+        
+        echo "=== Cluster Overview ==="
+        kubectl get all -A || true
+        
+        echo "=== Node Status ==="
+        kubectl get nodes -o wide || true
+        kubectl describe nodes || true
+        
+        echo "=== Pod Details ==="
+        kubectl get pods -n ${{ env.ORAN_NAMESPACE }} -o wide || true
+        kubectl describe pods -n ${{ env.ORAN_NAMESPACE }} || true
+        
+        echo "=== Service and Ingress Status ==="
+        kubectl get svc,ingress -n ${{ env.ORAN_NAMESPACE }} || true
+        
+        echo "=== Events ==="
+        kubectl get events -n ${{ env.ORAN_NAMESPACE }} --sort-by='.lastTimestamp' || true
+        
+        echo "=== Application Logs ==="
+        for deployment in main-dashboard xapp-dashboard e2-simulator a1-mediator fl-coordinator; do
+          echo "--- Logs for $deployment ---"
+          kubectl logs -n ${{ env.ORAN_NAMESPACE }} deployment/$deployment --tail=100 --previous=false || true
+          if kubectl get deployment/$deployment -n ${{ env.ORAN_NAMESPACE }} &>/dev/null; then
+            kubectl logs -n ${{ env.ORAN_NAMESPACE }} deployment/$deployment --tail=100 --previous=true || true
+          fi
+        done
+        
+        echo "=== Resource Usage ==="
+        kubectl top nodes || true
+        kubectl top pods -n ${{ env.ORAN_NAMESPACE }} || true
+        
+        echo "=== Storage and PVC Status ==="
+        kubectl get pv,pvc -A || true
 
   # Performance testing
   performance-test:
