@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {Component, Inject, Input} from '@angular/core';
+import {Component, Inject, Input, OnInit} from '@angular/core';
 import {IMessage} from '@api/root.ui';
 import {MESSAGES_DI_TOKEN} from '../../../index.messages';
 import {Animations} from '../../animations/animations';
@@ -23,7 +23,7 @@ import {Animations} from '../../animations/animations';
   styleUrls: ['./style.scss'],
   animations: [Animations.expandInOut],
 })
-export class CardComponent {
+export class CardComponent implements OnInit {
   @Input() initialized = true;
   @Input() role: 'inner' | 'table' | 'inner-content';
   @Input() withFooter = false;
@@ -31,6 +31,9 @@ export class CardComponent {
   @Input() expandable = true;
   @Input() expanded = true;
   @Input() graphMode = false;
+
+  preVar: string;
+  myVar: string;
   private classes_: string[] = [];
 
   @Input()
@@ -39,6 +42,11 @@ export class CardComponent {
   }
 
   constructor(@Inject(MESSAGES_DI_TOKEN) readonly message: IMessage) {}
+
+  ngOnInit(): void {
+    this.preVar = 'foo';
+    this.myVar = 'bar';
+  }
 
   expand(): void {
     if (this.expandable) {

@@ -13,14 +13,15 @@
 // limitations under the License.
 
 import {OverlayContainer} from '@angular/cdk/overlay';
-import {Component, ElementRef, OnInit} from '@angular/core';
+import {Component, ElementRef, OnInit, AfterViewInit} from '@angular/core';
 
 import {LocalSettingsService} from '@common/services/global/localsettings';
 import {ThemeService} from '@common/services/global/theme';
 import {TitleService} from '@common/services/global/title';
+import {MonitoringService} from '@common/services/global/monitoring.service';
 
 @Component({selector: 'kd-root', template: '<router-outlet></router-outlet>'})
-export class RootComponent implements OnInit {
+export class RootComponent implements OnInit, AfterViewInit {
   private _theme = this._themeService.theme;
 
   constructor(
@@ -28,7 +29,8 @@ export class RootComponent implements OnInit {
     private readonly _localSettingService: LocalSettingsService,
     private readonly _overlayContainer: OverlayContainer,
     private readonly _kdRootRef: ElementRef,
-    private readonly _titleService: TitleService
+    private readonly _titleService: TitleService,
+    private readonly monitoringService: MonitoringService
   ) {}
 
   ngOnInit(): void {
@@ -42,6 +44,16 @@ export class RootComponent implements OnInit {
     }
 
     this.applyOverlayContainerTheme_('', this._theme);
+  }
+
+  ngAfterViewInit() {
+    const startTime = performance.now();
+    // Simulate some rendering time
+    setTimeout(() => {
+      const endTime = performance.now();
+      const renderTime = endTime - startTime;
+      this.monitoringService.trackPerformance('root_component_render_time', renderTime);
+    }, 100);
   }
 
   private onThemeChange_(theme: string): void {
@@ -59,3 +71,4 @@ export class RootComponent implements OnInit {
     this._kdRootRef.nativeElement.classList.add(newTheme);
   }
 }
+

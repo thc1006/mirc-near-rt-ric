@@ -5,6 +5,12 @@
 // You may obtain a copy of the License at
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 import { 
   Component, 
@@ -14,26 +20,15 @@ import {
   ViewChild, 
   Output, 
   EventEmitter,
-  ChangeDetectorRef 
+  ChangeDetectorRef,
+  NgZone
 } from '@angular/core';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import * as d3 from 'd3';
 
-import { YangDataService, YangNode } from '../../services/yang-data.service';
-
-interface D3Node {
-  x: number;
-  y: number;
-  x0: number;
-  y0: number;
-  id: string;
-  depth: number;
-  data: YangNode;
-  children?: D3Node[];
-  _children?: D3Node[];
-  parent?: D3Node;
-}
+import { YangDataService } from '../../services/yang-data.service';
+import { YangNode, D3Node } from '../../services/oran-types';
 
 @Component({
   selector: 'app-yang-tree-browser',
@@ -63,7 +58,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
   expandedNodes = new Set<string>();
 
   // Node type colors
-  private nodeColors = {
+  private nodeColors: Record<string, string> = {
     'container': '#4CAF50',
     'leaf': '#2196F3', 
     'leaf-list': '#FF9800',
@@ -74,8 +69,11 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
 
   constructor(
     private yangDataService: YangDataService,
-    private cdr: ChangeDetectorRef
-  ) {}
+    private cdr: ChangeDetectorRef,
+    private ngZone: NgZone
+  ) {
+    // Empty constructor
+  }
 
   ngOnInit(): void {
     this.initializeTree();
@@ -95,43 +93,45 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
    * Initialize D3 tree structure
    */
   private initializeTree(): void {
-    const container = this.treeContainer.nativeElement;
-    const rect = container.getBoundingClientRect();
-    this.width = rect.width || 1200;
-    this.height = rect.height || 800;
+    this.ngZone.runOutsideAngular(() => {
+      const container = this.treeContainer.nativeElement;
+      const rect = container.getBoundingClientRect();
+      this.width = rect.width || 1200;
+      this.height = rect.height || 800;
 
-    // Clear any existing SVG
-    d3.select(container).selectAll('*').remove();
+      // Clear any existing SVG
+      d3.select(container).selectAll('*').remove();
 
-    this.svg = d3.select(container)
-      .append('svg')
-      .attr('width', this.width)
-      .attr('height', this.height)
-      .attr('class', 'yang-tree-svg');
+      this.svg = d3.select(container)
+        .append('svg')
+        .attr('width', this.width)
+        .attr('height', this.height)
+        .attr('class', 'yang-tree-svg');
 
-    // Add zoom behavior
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 3])
-      .on('zoom', (event) => {
-        this.g.attr('transform', event.transform);
-      });
+      // Add zoom behavior
+      const zoom = d3.zoom<SVGSVGElement, unknown>()
+        .scaleExtent([0.1, 3])
+        .on('zoom', (event) => {
+          this.g.attr('transform', event.transform);
+        });
 
-    this.svg.call(zoom);
+      this.svg.call(zoom);
 
-    // Add main group
-    this.g = this.svg.append('g')
-      .attr('transform', `translate(${this.margin.left},${this.margin.top})`);
+      // Add main group
+      this.g = this.svg.append('g')
+        .attr('transform', `translate(${this.margin.left},${this.margin.top})`);
 
-    // Add gradient definitions
-    this.addGradientDefinitions();
+      // Add gradient definitions
+      this.addGradientDefinitions();
 
-    // Add legend
-    this.addLegend();
+      // Add legend
+      this.addLegend();
 
-    // Initialize tree layout
-    this.tree = d3.tree<YangNode>()
-      .size([this.height - this.margin.top - this.margin.bottom, 
-             this.width - this.margin.left - this.margin.right]);
+      // Initialize tree layout
+      this.tree = d3.tree<YangNode>()
+        .size([this.height - this.margin.top - this.margin.bottom, 
+               this.width - this.margin.left - this.margin.right]);
+    });
   }
 
   /**
@@ -179,7 +179,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
 
     const legendItems = Object.entries(this.nodeColors);
     
-    legendItems.forEach(([type, color], i) => {
+    for (const [i, [type, color]] of legendItems.entries()) {
       const legendItem = legend.append('g')
         .attr('class', 'legend-item')
         .attr('transform', `translate(0, ${i * 25})`);
@@ -196,7 +196,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
         .style('font-size', '12px')
         .style('font-family', 'monospace')
         .text(type);
-    });
+    }
   }
 
   /**
@@ -206,9 +206,10 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
     this.yangDataService.loadYangData()
       .pipe(takeUntil(this.destroy$))
       .subscribe(data => {
-        if (data && data.length > 0) {
+        if (data?.length) {
           this.processData(data[0]); // Use first root node
           this.updateTree();
+          this.cdr.detectChanges();
         }
       });
   }
@@ -225,7 +226,9 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
 
     // Collapse all nodes initially except root
     if (this.root.children) {
-      this.root.children.forEach(d => this.collapse(d));
+      for (const child of this.root.children) {
+        this.collapse(child);
+      }
     }
 
     // Assign unique IDs
@@ -238,10 +241,14 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
   private assignNodeIds(node: D3Node): void {
     node.id = node.data.id || `node-${this.nodeCounter++}`;
     if (node.children) {
-      node.children.forEach(child => this.assignNodeIds(child));
+      for (const child of node.children) {
+        this.assignNodeIds(child);
+      }
     }
     if (node._children) {
-      node._children.forEach(child => this.assignNodeIds(child));
+      for (const child of node._children) {
+        this.assignNodeIds(child);
+      }
     }
   }
 
@@ -251,7 +258,9 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
   private collapse(d: D3Node): void {
     if (d.children) {
       d._children = d.children;
-      d._children.forEach(child => this.collapse(child));
+      for (const child of d._children) {
+        this.collapse(child);
+      }
       d.children = undefined;
     }
   }
@@ -260,28 +269,32 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
    * Update tree visualization
    */
   private updateTree(source?: D3Node): void {
-    if (!this.root) return;
+    if (!this.root) {
+      return;
+    }
 
     const treeData = this.tree(this.root as any);
-    const nodes = treeData.descendants();
-    const links = treeData.descendants().slice(1);
+    const nodes = treeData.descendants() as D3Node[];
+    const links = treeData.descendants().slice(1) as D3Node[];
 
     // Normalize for fixed-depth
-    nodes.forEach(d => d.y = d.depth * 180);
+    for (const node of nodes) {
+      node.y = node.depth * 180;
+    }
 
     // Update nodes
-    this.updateNodes(nodes as unknown as D3Node[], source || this.root);
+    this.updateNodes(nodes, source ?? this.root);
 
     // Update links
-    this.updateLinks(links as unknown as D3Node[], source || this.root);
+    this.updateLinks(links, source ?? this.root);
   }
 
   /**
    * Update node elements
    */
   private updateNodes(nodes: D3Node[], source: D3Node): void {
-    const node = this.g.selectAll('g.node')
-      .data(nodes, (d: any) => d.id);
+    const node = this.g.selectAll<SVGGElement, D3Node>('g.node')
+      .data(nodes, d => d.id);
 
     // Enter new nodes
     const nodeEnter = node.enter().append('g')
@@ -294,7 +307,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
     nodeEnter.append('circle')
       .attr('r', 1e-6)
       .style('fill', d => d._children ? 'lightsteelblue' : '#fff')
-      .style('stroke', d => this.nodeColors[d.data.type as keyof typeof this.nodeColors] || '#999')
+      .style('stroke', d => this.nodeColors[d.data.type] ?? '#999')
       .style('stroke-width', '2px')
       .style('filter', 'url(#nodeGradient)');
 
@@ -323,10 +336,10 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
     // Add metadata tooltip
     nodeEnter.filter(d => Boolean(d.data.metadata?.description))
       .append('title')
-      .text(d => `${d.data.name}\nType: ${d.data.type}\nPath: ${d.data.path}\n${d.data.metadata?.description || ''}`);
+      .text(d => `${d.data.name}\nType: ${d.data.type}\nPath: ${d.data.path}\n${d.data.metadata?.description ?? ''}`);
 
     // Transition nodes to their new position
-    const nodeUpdate = nodeEnter.merge(node as any);
+    const nodeUpdate = nodeEnter.merge(node);
 
     nodeUpdate.transition()
       .duration(this.duration)
@@ -335,7 +348,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
     nodeUpdate.select('circle')
       .attr('r', d => this.getNodeRadius(d))
       .style('fill', d => this.getNodeColor(d))
-      .style('stroke', d => this.nodeColors[d.data.type as keyof typeof this.nodeColors] || '#999')
+      .style('stroke', d => this.nodeColors[d.data.type] ?? '#999')
       .style('stroke-width', d => d.data.metrics?.errorCount ? '3px' : '2px');
 
     nodeUpdate.select('text')
@@ -362,14 +375,14 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
    * Update link elements
    */
   private updateLinks(links: D3Node[], source: D3Node): void {
-    const link = this.g.selectAll('path.link')
-      .data(links, (d: any) => d.id);
+    const link = this.g.selectAll<SVGPathElement, D3Node>('path.link')
+      .data(links, d => d.id);
 
     // Enter new links
     const linkEnter = link.enter().insert('path', 'g')
       .attr('class', 'link')
       .attr('d', () => {
-        const o = { x: source.x0 || 0, y: source.y0 || 0 };
+        const o = { x: source.x0 ?? 0, y: source.y0 ?? 0 };
         return this.diagonal(o, o);
       })
       .style('fill', 'none')
@@ -377,7 +390,7 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
       .style('stroke-width', '2px');
 
     // Transition links to their new position
-    const linkUpdate = linkEnter.merge(link as any);
+    const linkUpdate = linkEnter.merge(link);
 
     linkUpdate.transition()
       .duration(this.duration)
@@ -467,25 +480,25 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
    * Highlight search results
    */
   private highlightSearchResults(term: string): void {
-    this.g.selectAll('g.node')
-      .style('opacity', (d: any) => {
+    this.g.selectAll<SVGGElement, D3Node>('g.node')
+      .style('opacity', d => {
         const matches = d.data.name.toLowerCase().includes(term) ||
                        d.data.path.toLowerCase().includes(term) ||
-                       (d.data.metadata?.description || '').toLowerCase().includes(term);
+                       (d.data.metadata?.description ?? '').toLowerCase().includes(term);
         return matches ? 1 : 0.3;
       });
 
-    this.g.selectAll('g.node circle')
-      .style('stroke-width', (d: any) => {
+    this.g.selectAll<SVGCircleElement, D3Node>('g.node circle')
+      .style('stroke-width', d => {
         const matches = d.data.name.toLowerCase().includes(term) ||
                        d.data.path.toLowerCase().includes(term) ||
-                       (d.data.metadata?.description || '').toLowerCase().includes(term);
+                       (d.data.metadata?.description ?? '').toLowerCase().includes(term);
         return matches ? '4px' : '2px';
       })
-      .style('filter', (d: any) => {
+      .style('filter', d => {
         const matches = d.data.name.toLowerCase().includes(term) ||
                        d.data.path.toLowerCase().includes(term) ||
-                       (d.data.metadata?.description || '').toLowerCase().includes(term);
+                       (d.data.metadata?.description ?? '').toLowerCase().includes(term);
         return matches ? 'url(#glow)' : 'none';
       });
   }
@@ -510,8 +523,8 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
       this.g.selectAll('g.node')
         .style('display', 'block');
     } else {
-      this.g.selectAll('g.node')
-        .style('display', (d: any) => 
+      this.g.selectAll<SVGGElement, D3Node>('g.node')
+        .style('display', d => 
           d.data.type === this.filterType ? 'block' : 'none'
         );
     }
@@ -521,16 +534,20 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
    * Expand all nodes
    */
   expandAll(): void {
-    this.expandAllNodes(this.root);
-    this.updateTree();
+    if (this.root) {
+      this.expandAllNodes(this.root);
+      this.updateTree();
+    }
   }
 
   /**
    * Collapse all nodes
    */
   collapseAll(): void {
-    if (this.root.children) {
-      this.root.children.forEach(d => this.collapse(d));
+    if (this.root?.children) {
+      for (const child of this.root.children) {
+        this.collapse(child);
+      }
     }
     this.updateTree();
   }
@@ -545,7 +562,9 @@ export class YangTreeBrowserComponent implements OnInit, OnDestroy {
       this.expandedNodes.add(d.id);
     }
     if (d.children) {
-      d.children.forEach(child => this.expandAllNodes(child));
+      for (const child of d.children) {
+        this.expandAllNodes(child);
+      }
     }
   }
 

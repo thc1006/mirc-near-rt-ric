@@ -15,18 +15,22 @@
 package main
 
 import (
+	"context"
 	"crypto/elliptic"
 	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/pflag"
+	"gopkg.in/yaml.v2"
 
 	"github.com/kubernetes/dashboard/src/app/backend/args"
 	"github.com/kubernetes/dashboard/src/app/backend/auth"
@@ -36,6 +40,7 @@ import (
 	"github.com/kubernetes/dashboard/src/app/backend/cert/ecdsa"
 	"github.com/kubernetes/dashboard/src/app/backend/client"
 	clientapi "github.com/kubernetes/dashboard/src/app/backend/client/api"
+	"github.com/kubernetes/dashboard/src/app/backend/federatedlearning"
 	"github.com/kubernetes/dashboard/src/app/backend/handler"
 	"github.com/kubernetes/dashboard/src/app/backend/integration"
 	integrationapi "github.com/kubernetes/dashboard/src/app/backend/integration/api"
@@ -70,6 +75,51 @@ var (
 	argNamespace                 = pflag.String("namespace", getEnv("POD_NAMESPACE", "kube-system"), "if non-default namespace is used encryption key will be created in the specified namespace")
 	localeConfig                 = pflag.String("locale-config", "./locale_conf.json", "path to file containing the locale configuration")
 )
+
+var (
+	e2MessageCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "e2_message_counts",
+			Help: "Number of E2 messages.",
+		},
+		[]string{"message_type"},
+	)
+	a1PolicySuccessRate = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "a1_policy_deployment_success_rate",
+			Help: "A1 policy deployment success rate.",
+		},
+	)
+	o1ConfigurationChangeCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "o1_configuration_change_count",
+			Help: "Number of O1 configuration changes.",
+		},
+	)
+	flModelConvergenceTime = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "fl_model_convergence_time_seconds",
+			Help:    "Federated learning model convergence time.",
+			Buckets: prometheus.LinearBuckets(1, 1, 10),
+		},
+	)
+	angularAppPerformance = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "angular_app_performance_seconds",
+			Help:    "Angular application performance.",
+			Buckets: prometheus.LinearBuckets(0.1, 0.1, 10),
+		},
+	)
+	goBackendAPIResponseTimes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "go_backend_api_response_times_seconds",
+			Help:    "Go backend API response times.",
+			Buckets: prometheus.LinearBuckets(0.1, 0.1, 10),
+		},
+		[]string{"endpoint"},
+	)
+)
+
 
 func main() {
 	// Set logging output to standard console out
@@ -158,6 +208,15 @@ func main() {
 		}
 		servingCerts = []tls.Certificate{servingCert}
 	}
+
+	// Register custom metrics
+	prometheus.MustRegister(e2MessageCounter)
+	prometheus.MustRegister(a1PolicySuccessRate)
+	prometheus.MustRegister(o1ConfigurationChangeCounter)
+	prometheus.MustRegister(flModelConvergenceTime)
+	prometheus.MustRegister(angularAppPerformance)
+	prometheus.MustRegister(goBackendAPIResponseTimes)
+
 
 	// Run a HTTP server that serves static public files from './public' and handles API calls.
 	http.Handle("/", handler.MakeGzipHandler(handler.CreateLocaleHandler()))

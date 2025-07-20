@@ -158,6 +158,18 @@ func NewFLCoordinator(
 		activeJobs:        make(map[string]*ActiveTrainingJob),
 		ctx:               ctx,
 		cancel:            cancel,
+		clientStore:       *NewClientStore(), // Initialize in-memory client store
+		modelStore:        *NewModelStore(),  // Initialize in-memory model store
+		metricsStore:      *NewMetricsStore(), // Initialize in-memory metrics store
+		cryptoEngine:      &mockCryptoEngine{logger: logger},
+		privacyEngine:     &mockPrivacyEngine{logger: logger},
+		trustManager:      &mockTrustManager{logger: logger},
+		trainingOrchestrator: &mockTrainingOrchestrator{logger: logger},
+		aggregationEngine:    &mockAggregationEngine{logger: logger},
+		metricsCollector:     &mockMetricsCollector{logger: logger},
+		alertManager:         &mockAlertManager{logger: logger},
+		resourceManager:      &mockResourceManager{logger: logger},
+		schedulingEngine:     &mockSchedulingEngine{logger: logger},
 	}
 	
 	// Initialize storage backends
@@ -189,6 +201,635 @@ func NewFLCoordinator(
 	
 	return coordinator, nil
 }
+
+// initializeStorage initializes the storage backends.
+func (c *FLCoordinator) initializeStorage() error {
+	c.logger.Info("Initializing in-memory storage for FL coordinator")
+	// In-memory stores are already initialized in NewFLCoordinator
+	return nil
+}
+
+// initializeSecurity initializes security components.
+func (c *FLCoordinator) initializeSecurity() error {
+	c.logger.Info("Initializing mock security components")
+	// Placeholder for actual security setup (e.g., loading TLS certs, key management)
+	return nil
+}
+
+// initializeTraining initializes training-related components.
+func (c *FLCoordinator) initializeTraining() error {
+	c.logger.Info("Initializing mock training components")
+	// Placeholder for actual training orchestration and aggregation setup
+	return nil
+}
+
+// initializeMonitoring initializes monitoring and observability components.
+func (c *FLCoordinator) initializeMonitoring() error {
+	c.logger.Info("Initializing mock monitoring components")
+	// Placeholder for actual metrics collection and alerting setup
+	return nil
+}
+
+// startBackgroundServices starts any necessary background goroutines.
+func (c *FLCoordinator) startBackgroundServices() {
+	c.logger.Info("Starting FL coordinator background services")
+	// Example: Goroutine for cleaning up inactive clients
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		ticker := time.NewTicker(c.config.HeartbeatInterval * 2) // Check every twice heartbeat interval
+		defer ticker.Stop()
+		for {
+			select {
+			case <-c.ctx.Done():
+				c.logger.Info("Background client cleanup service stopped")
+				return
+			case <-ticker.C:
+				c.cleanupInactiveClients()
+			}
+		}
+	}()
+
+	// Example: Goroutine for processing model updates (if async)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		// This would typically listen on a channel for model updates
+		// and trigger aggregation logic. For now, it's a placeholder.
+		c.logger.Info("Background model update processing service started (placeholder)")
+		<-c.ctx.Done() // Keep running until context is cancelled
+		c.logger.Info("Background model update processing service stopped")
+	}()
+}
+
+// cleanupInactiveClients removes clients that haven't sent heartbeats for a long time.
+func (c *FLCoordinator) cleanupInactiveClients() {
+	c.logger.Debug("Running inactive client cleanup")
+	clients, err := c.clientStore.List(c.ctx)
+	if err != nil {
+		c.logger.Error("Failed to list clients for cleanup", slog.String("error", err.Error()))
+		return
+	}
+
+	for _, client := range clients {
+		if time.Since(client.LastHeartbeat) > c.config.MaxInactiveTime {
+			c.logger.Info("Unregistering inactive client", slog.String("client_id", client.ID))
+			if err := c.UnregisterClient(c.ctx, client.ID); err != nil {
+				c.logger.Error("Failed to unregister inactive client",
+					slog.String("client_id", client.ID), slog.String("error", err.Error()))
+			}
+		}
+	}
+}
+
+// validateClientRegistration performs basic validation on client registration data.
+func (c *FLCoordinator) validateClientRegistration(client *FLClient) error {
+	if client.XAppName == "" {
+		return fmt.Errorf("xapp_name cannot be empty")
+	}
+	if client.Endpoint == "" {
+		return fmt.Errorf("endpoint cannot be empty")
+	}
+	if len(client.RRMTasks) == 0 {
+		return fmt.Errorf("at least one RRM task is required")
+	}
+	// Further validation based on config.CoordinatorConfig
+	return nil
+}
+
+// calculateInitialTrustScore calculates an initial trust score for a new client.
+func (c *FLCoordinator) calculateInitialTrustScore(client *FLClient) float64 {
+	// Placeholder: In a real system, this would involve more complex logic
+	// based on client history, security features, and network conditions.
+	return 0.75 // Default initial trust score
+}
+
+// validateNetworkSlices validates if the provided network slices are valid and accessible.
+func (c *FLCoordinator) validateNetworkSlices(ctx context.Context, slices []NetworkSliceInfo) error {
+	// Placeholder: In a real system, this would query a network slice manager
+	// or A1 interface for valid slice IDs and permissions.
+	if len(slices) > 0 {
+		c.logger.Debug("Network slice validation (placeholder)", slog.Any("slices", slices))
+	}
+	return nil
+}
+
+// matchesSelector checks if a client matches the given selector criteria.
+func (c *FLCoordinator) matchesSelector(client *FLClient, selector ClientSelector) bool {
+	if selector.MinTrustScore > 0 && client.TrustScore < selector.MinTrustScore {
+		return false
+	}
+	if selector.GeographicZone != "" && client.Metadata["geographic_zone"] != selector.GeographicZone {
+		return false
+	}
+	for _, task := range selector.MatchRRMTasks {
+		found := false
+		for _, clientTask := range client.RRMTasks {
+			if clientTask == task {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	// Add logic for MatchLabels, MinComputeCapacity, MaxLatency etc.
+	return true
+}
+
+// selectTopClients selects the top N clients based on trust score.
+func (c *FLCoordinator) selectTopClients(clients []*FLClient, count int) []*FLClient {
+	// Simple sort by trust score (descending)
+	// In a real system, this would be more sophisticated (e.g., considering diversity)
+	sort.Slice(clients, func(i, j int) bool {
+		return clients[i].TrustScore > clients[j].TrustScore
+	})
+	if len(clients) > count {
+		return clients[:count]
+	}
+	return clients
+}
+
+// validateTrainingJobSpec validates the training job specification.
+func (c *FLCoordinator) validateTrainingJobSpec(jobSpec TrainingJobSpec) error {
+	if jobSpec.ModelID == "" {
+		return fmt.Errorf("model ID cannot be empty")
+	}
+	if jobSpec.RRMTask == "" {
+		return fmt.Errorf("RRM task cannot be empty")
+	}
+	if jobSpec.TrainingConfig.MinParticipants <= 0 {
+		return fmt.Errorf("min_participants must be greater than 0")
+	}
+	// Add more comprehensive validation based on config
+	return nil
+}
+
+// getOrCreateGlobalModel retrieves an existing global model or creates a new one.
+func (c *FLCoordinator) getOrCreateGlobalModel(ctx context.Context, modelID string, rrmTask RRMTaskType) (*GlobalModel, error) {
+	model, err := c.modelStore.GetGlobalModel(ctx, modelID)
+	if err == nil {
+		c.logger.Info("Found existing global model", slog.String("model_id", modelID))
+		return model, nil
+	}
+
+	// If not found, create a new placeholder model
+	c.logger.Info("Creating new placeholder global model", slog.String("model_id", modelID))
+	newModel := &GlobalModel{
+		ID:           modelID,
+		Name:         fmt.Sprintf("model-%s", modelID),
+		Version:      "v1.0.0",
+		RRMTask:      rrmTask,
+		Format:       ModelFormatTensorFlow, // Default
+		Architecture: "CNN",                 // Default
+		Parameters:   []byte("initial_model_parameters"),
+		ParametersHash: hex.EncodeToString(sha256.New().Sum([]byte("initial_model_parameters"))),
+		TrainingConfig: TrainingConfiguration{
+			BatchSize:       32,
+			LocalEpochs:     5,
+			LearningRate:    0.01,
+			MinParticipants: 2,
+			MaxParticipants: 10,
+			TimeoutSeconds:  300,
+		},
+		AggregationAlg: AggregationFedAvg,
+		PrivacyMech:    PrivacyDifferential,
+		PrivacyParams: PrivacyParameters{
+			Epsilon: 1.0,
+			Delta:   1e-5,
+		},
+		MaxRounds:      10,
+		TargetAccuracy: 0.9,
+		Status:         TrainingStatusInitializing,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	if err := c.modelStore.CreateGlobalModel(ctx, newModel); err != nil {
+		return nil, fmt.Errorf("failed to create new global model: %w", err)
+	}
+	return newModel, nil
+}
+
+// selectClientsForTraining selects clients based on job requirements and availability.
+func (c *FLCoordinator) selectClientsForTraining(ctx context.Context, selector ClientSelector, rrmTask RRMTaskType) ([]*FLClient, error) {
+	allClients, err := c.clientStore.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list clients for selection: %w", err)
+	}
+
+	var eligibleClients []*FLClient
+	for _, client := range allClients {
+		// Check if client is idle and matches RRM task
+		if client.Status == FLClientStatusIdle {
+			for _, task := range client.RRMTasks {
+				if task == rrmTask {
+					eligibleClients = append(eligibleClients, client)
+					break
+				}
+			}
+		}
+	}
+
+	// Apply selector filters
+	var selectedClients []*FLClient
+	for _, client := range eligibleClients {
+		if c.matchesSelector(client, selector) {
+			selectedClients = append(selectedClients, client)
+		}
+	}
+
+	// Apply MaxClients limit
+	if selector.MaxClients > 0 && len(selectedClients) > selector.MaxClients {
+		selectedClients = c.selectTopClients(selectedClients, selector.MaxClients)
+	}
+
+	c.logger.Info("Clients selected for training",
+		slog.Int("selected_count", len(selectedClients)),
+		slog.Int("eligible_count", len(eligibleClients)))
+
+	return selectedClients, nil
+}
+
+// orchestrateTraining manages the lifecycle of a single federated learning training job.
+func (c *FLCoordinator) orchestrateTraining(ctx context.Context, activeJob *ActiveTrainingJob) {
+	defer c.wg.Done()
+	jobID := activeJob.Job.Name
+	c.logger.Info("Starting training orchestration for job", slog.String("job_id", jobID))
+
+	// Update job status to running
+	activeJob.Status = TrainingStatusRunning
+	activeJob.Job.Status.Phase = TrainingStatusRunning
+	activeJob.Job.Status.LastUpdate = metav1.Now()
+	// Persist job status update (optional, for in-memory store it's already updated)
+
+	// Main training loop
+	for round := activeJob.CompletedRounds + 1; round <= activeJob.Job.Spec.TrainingConfig.MaxRounds; round++ {
+		select {
+		case <-ctx.Done():
+			c.logger.Info("Training orchestration cancelled for job", slog.String("job_id", jobID))
+			activeJob.Status = TrainingStatusPaused
+			activeJob.Job.Status.Phase = TrainingStatusPaused
+			activeJob.Job.Status.LastUpdate = metav1.Now()
+			return
+		default:
+			c.logger.Info("Starting new training round",
+				slog.String("job_id", jobID), slog.Int64("round", round))
+
+			// 1. Distribute global model to participants
+			// In a real system, this would involve gRPC calls to xApps
+			c.logger.Debug("Distributing model to clients (mock)", slog.String("job_id", jobID))
+			for _, client := range activeJob.Participants {
+				// Simulate model distribution and client training
+				c.metricsCollector.RecordClientStatusChange(client.ID, FLClientStatusIdle, FLClientStatusTraining)
+				// Simulate client processing time
+				time.Sleep(1 * time.Second)
+				// Simulate client submitting update
+				localMetrics := ModelMetrics{Accuracy: 0.8 + rand.Float64()*0.1} // Mock accuracy
+				update := ModelUpdate{
+					ClientID:        client.ID,
+					ModelID:         activeJob.CurrentModel.ID,
+					Round:           round,
+					Parameters:      []byte(fmt.Sprintf("client_%s_model_update_round_%d", client.ID, round)),
+					ParametersHash:  hex.EncodeToString(sha256.New().Sum([]byte(fmt.Sprintf("client_%s_model_update_round_%d", client.ID, round)))),
+					DataSamplesCount: 1000,
+					LocalMetrics:    localMetrics,
+					Timestamp:       time.Now(),
+				}
+				activeJob.modelUpdates <- update
+				c.metricsCollector.RecordClientStatusChange(client.ID, FLClientStatusTraining, FLClientStatusIdle)
+			}
+
+			// 2. Collect model updates and aggregate
+			collectedUpdates := []ModelUpdate{}
+			timeout := time.After(activeJob.Job.Spec.TrainingConfig.TimeoutSeconds * time.Second)
+			for i := 0; i < len(activeJob.Participants); i++ {
+				select {
+				case update := <-activeJob.modelUpdates:
+					collectedUpdates = append(collectedUpdates, update)
+				case <-timeout:
+					c.logger.Warn("Model update collection timed out for round",
+						slog.String("job_id", jobID), slog.Int64("round", round))
+					// Handle stragglers/failures
+					break
+				}
+			}
+
+			if len(collectedUpdates) < activeJob.Job.Spec.TrainingConfig.MinParticipants {
+				c.logger.Error("Insufficient model updates for aggregation",
+					slog.String("job_id", jobID), slog.Int64("round", round),
+					slog.Int("collected", len(collectedUpdates)),
+					slog.Int("required", activeJob.Job.Spec.TrainingConfig.MinParticipants))
+				activeJob.FailedRounds++
+				activeJob.Status = TrainingStatusFailed
+				activeJob.Job.Status.Phase = TrainingStatusFailed
+				activeJob.Job.Status.Message = fmt.Sprintf("Insufficient updates for round %d", round)
+				activeJob.Job.Status.LastUpdate = metav1.Now()
+				// Consider breaking or retrying
+				break // Exit round loop, potentially fail job
+			}
+
+			c.logger.Info("Aggregating models", slog.String("job_id", jobID), slog.Int64("round", round))
+			activeJob.Status = TrainingStatusAggregating
+			activeJob.Job.Status.Phase = TrainingStatusAggregating
+			activeJob.Job.Status.LastUpdate = metav1.Now()
+
+			newGlobalModel, err := c.aggregationEngine.Aggregate(collectedUpdates, activeJob.CurrentModel.AggregationAlg)
+			if err != nil {
+				c.logger.Error("Model aggregation failed",
+					slog.String("job_id", jobID), slog.Int64("round", round), slog.String("error", err.Error()))
+				activeJob.FailedRounds++
+				activeJob.Status = TrainingStatusFailed
+				activeJob.Job.Status.Phase = TrainingStatusFailed
+				activeJob.Job.Status.Message = fmt.Sprintf("Aggregation failed in round %d: %v", round, err)
+				activeJob.Job.Status.LastUpdate = metav1.Now()
+				break // Exit round loop, potentially fail job
+			}
+
+			activeJob.CurrentModel = newGlobalModel
+			activeJob.CurrentModel.CurrentRound = round
+			activeJob.CurrentModel.UpdatedAt = time.Now()
+			activeJob.LastAggregation = time.Now()
+			activeJob.CompletedRounds = round
+			activeJob.CurrentModel.Status = TrainingStatusRunning // Still running for next round
+
+			// Update global model in store
+			if err := c.modelStore.UpdateGlobalModel(ctx, activeJob.CurrentModel); err != nil {
+				c.logger.Error("Failed to update global model in store",
+					slog.String("model_id", activeJob.CurrentModel.ID), slog.String("error", err.Error()))
+			}
+
+			// Record round metrics
+			roundMetrics := RoundMetrics{
+				Round:             round,
+				Timestamp:         time.Now(),
+				ParticipatingClients: len(collectedUpdates),
+				ModelMetrics:      newGlobalModel.ModelMetrics,
+				AggregationTimeMs: float64(time.Since(activeJob.LastAggregation).Milliseconds()),
+				// Populate other metrics from collectedUpdates
+			}
+			c.metricsCollector.RecordRoundMetrics(roundMetrics)
+
+			c.logger.Info("Round completed",
+				slog.String("job_id", jobID), slog.Int64("round", round),
+				slog.Float64("accuracy", newGlobalModel.ModelMetrics.Accuracy))
+
+			// Check for convergence
+			if newGlobalModel.ModelMetrics.Accuracy >= activeJob.Job.Spec.TrainingConfig.TargetAccuracy {
+				c.logger.Info("Model converged", slog.String("job_id", jobID),
+					slog.Float64("accuracy", newGlobalModel.ModelMetrics.Accuracy))
+				activeJob.Status = TrainingStatusCompleted
+				activeJob.Job.Status.Phase = TrainingStatusCompleted
+				activeJob.Job.Status.Message = "Model converged successfully"
+				activeJob.Job.Status.LastUpdate = metav1.Now()
+				activeJob.CurrentModel.Status = TrainingStatusCompleted
+				break // Exit training loop
+			}
+		}
+	}
+
+	// Finalize job status
+	if activeJob.Status != TrainingStatusCompleted {
+		activeJob.Status = TrainingStatusFailed // Or completed if max rounds reached without convergence
+		activeJob.Job.Status.Phase = TrainingStatusFailed
+		activeJob.Job.Status.Message = "Training completed without convergence or failed"
+		activeJob.Job.Status.LastUpdate = metav1.Now()
+		activeJob.CurrentModel.Status = TrainingStatusFailed
+	}
+	c.metricsCollector.RecordTrainingJobCompletion(activeJob.Job)
+	c.logger.Info("Training orchestration finished for job", slog.String("job_id", jobID),
+		slog.String("final_status", string(activeJob.Status)))
+
+	// Clean up active job
+	c.jobsMutex.Lock()
+	delete(c.activeJobs, jobID)
+	c.jobsMutex.Unlock()
+}
+
+// --- Mock Implementations for Interfaces ---
+
+type mockCryptoEngine struct {
+	logger *slog.Logger
+	keys   map[string]ed25519.PrivateKey
+	mutex  sync.RWMutex
+}
+
+func (m *mockCryptoEngine) StorePrivateKey(clientID string, privateKey ed25519.PrivateKey) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if m.keys == nil {
+		m.keys = make(map[string]ed25519.PrivateKey)
+	}
+	m.keys[clientID] = privateKey
+	m.logger.Debug("Mock CryptoEngine: Stored private key", slog.String("client_id", clientID))
+	return nil
+}
+
+func (m *mockCryptoEngine) DeleteKeys(clientID string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	delete(m.keys, clientID)
+	m.logger.Debug("Mock CryptoEngine: Deleted keys", slog.String("client_id", clientID))
+	return nil
+}
+
+type mockPrivacyEngine struct {
+	logger *slog.Logger
+}
+
+func (m *mockPrivacyEngine) ApplyDifferentialPrivacy(data []byte, epsilon float64) ([]byte, error) {
+	m.logger.Debug("Mock PrivacyEngine: Applying differential privacy (no-op)", slog.Float64("epsilon", epsilon))
+	return data, nil // No-op for mock
+}
+
+func (m *mockPrivacyEngine) ValidatePrivacyBudget(clientID string, requestedBudget float64) error {
+	m.logger.Debug("Mock PrivacyEngine: Validating privacy budget (always true)",
+		slog.String("client_id", clientID), slog.Float64("requested_budget", requestedBudget))
+	return nil // Always valid for mock
+}
+
+type mockTrustManager struct {
+	logger *slog.Logger
+	scores map[string]float64
+	mutex  sync.RWMutex
+}
+
+func (m *mockTrustManager) RegisterClient(ctx context.Context, client *FLClient) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if m.scores == nil {
+		m.scores = make(map[string]float64)
+	}
+	m.scores[client.ID] = client.TrustScore
+	m.logger.Debug("Mock TrustManager: Registered client", slog.String("client_id", client.ID))
+	return nil
+}
+
+func (m *mockTrustManager) UnregisterClient(ctx context.Context, clientID string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	delete(m.scores, clientID)
+	m.logger.Debug("Mock TrustManager: Unregistered client", slog.String("client_id", clientID))
+	return nil
+}
+
+func (m *mockTrustManager) UpdateTrustScore(ctx context.Context, clientID string, score float64) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.scores[clientID] = score
+	m.logger.Debug("Mock TrustManager: Updated trust score", slog.String("client_id", clientID), slog.Float64("score", score))
+	return nil
+}
+
+func (m *mockTrustManager) GetTrustScore(ctx context.Context, clientID string) (float64, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	score, ok := m.scores[clientID]
+	if !ok {
+		return 0, fmt.Errorf("trust score for client %s not found", clientID)
+	}
+	m.logger.Debug("Mock TrustManager: Got trust score", slog.String("client_id", clientID), slog.Float64("score", score))
+	return score, nil
+}
+
+type mockTrainingOrchestrator struct {
+	logger *slog.Logger
+}
+
+func (m *mockTrainingOrchestrator) StartRound(ctx context.Context, job *ActiveTrainingJob) error {
+	m.logger.Debug("Mock TrainingOrchestrator: Starting round (no-op)", slog.String("job_id", job.Job.Name))
+	return nil
+}
+
+func (m *mockTrainingOrchestrator) AggregateRound(ctx context.Context, updates []ModelUpdate) (*GlobalModel, error) {
+	m.logger.Debug("Mock TrainingOrchestrator: Aggregating round (no-op)")
+	return &GlobalModel{}, nil
+}
+
+func (m *mockTrainingOrchestrator) ValidateParticipants(ctx context.Context, participants []*FLClient) error {
+	m.logger.Debug("Mock TrainingOrchestrator: Validating participants (always true)")
+	return nil
+}
+
+type mockAggregationEngine struct {
+	logger *slog.Logger
+}
+
+func (m *mockAggregationEngine) Aggregate(updates []ModelUpdate, algorithm AggregationAlgorithm) (*GlobalModel, error) {
+	m.logger.Debug("Mock AggregationEngine: Aggregating models", slog.String("algorithm", string(algorithm)))
+	// Simulate aggregation: simple average of accuracies
+	var totalAccuracy float64
+	var count int
+	for _, update := range updates {
+		totalAccuracy += update.LocalMetrics.Accuracy
+		count++
+	}
+	avgAccuracy := 0.0
+	if count > 0 {
+		avgAccuracy = totalAccuracy / float64(count)
+	}
+
+	return &GlobalModel{
+		ModelMetrics: ModelMetrics{
+			Accuracy: avgAccuracy,
+			Loss:     0.1, // Mock loss
+		},
+	}, nil
+}
+
+func (m *mockAggregationEngine) ValidateUpdate(update ModelUpdate) error {
+	m.logger.Debug("Mock AggregationEngine: Validating update (always true)", slog.String("client_id", update.ClientID))
+	return nil
+}
+
+func (m *mockAggregationEngine) ApplyPrivacyMechanism(model *GlobalModel, mechanism PrivacyMechanism) error {
+	m.logger.Debug("Mock AggregationEngine: Applying privacy mechanism (no-op)", slog.String("mechanism", string(mechanism)))
+	return nil
+}
+
+type mockMetricsCollector struct {
+	logger *slog.Logger
+}
+
+func (m *mockMetricsCollector) RecordClientRegistration(client *FLClient) {
+	m.logger.Debug("Mock MetricsCollector: Client registered", slog.String("client_id", client.ID))
+}
+
+func (m *mockMetricsCollector) RecordClientUnregistration(client *FLClient) {
+	m.logger.Debug("Mock MetricsCollector: Client unregistered", slog.String("client_id", client.ID))
+}
+
+func (m *mockMetricsCollector) RecordClientStatusChange(clientID string, oldStatus, newStatus FLClientStatus) {
+	m.logger.Debug("Mock MetricsCollector: Client status change",
+		slog.String("client_id", clientID), slog.String("old", string(oldStatus)), slog.String("new", string(newStatus)))
+}
+
+func (m *mockMetricsCollector) RecordTrainingJobStart(job *TrainingJob) {
+	m.logger.Debug("Mock MetricsCollector: Training job started", slog.String("job_id", job.Name))
+}
+
+func (m *mockMetricsCollector) RecordRoundMetrics(metrics RoundMetrics) {
+	m.logger.Debug("Mock MetricsCollector: Recorded round metrics", slog.Int64("round", metrics.Round))
+}
+
+func (m *mockMetricsCollector) RecordTrainingJobCompletion(job *TrainingJob) {
+	m.logger.Debug("Mock MetricsCollector: Training job completed", slog.String("job_id", job.Name))
+}
+
+type mockAlertManager struct {
+	logger *slog.Logger
+}
+
+func (m *mockAlertManager) SendAlert(alertType, message string, severity string) error {
+	m.logger.Warn("Mock AlertManager: Sending alert",
+		slog.String("type", alertType), slog.String("severity", severity), slog.String("message", message))
+	return nil
+}
+
+func (m *mockAlertManager) ConfigureThresholds(thresholds map[string]float64) error {
+	m.logger.Debug("Mock AlertManager: Configuring thresholds (no-op)", slog.Any("thresholds", thresholds))
+	return nil
+}
+
+type mockResourceManager struct {
+	logger *slog.Logger
+}
+
+func (m *mockResourceManager) CheckAvailability(ctx context.Context, requirements ResourceRequirements) error {
+	m.logger.Debug("Mock ResourceManager: Checking resource availability (always available)")
+	return nil // Always available for mock
+}
+
+func (m *mockResourceManager) AllocateResources(ctx context.Context, jobID string, requirements ResourceRequirements) error {
+	m.logger.Debug("Mock ResourceManager: Allocating resources (no-op)", slog.String("job_id", jobID))
+	return nil
+}
+
+func (m *mockResourceManager) ReleaseResources(ctx context.Context, jobID string) error {
+	m.logger.Debug("Mock ResourceManager: Releasing resources (no-op)", slog.String("job_id", jobID))
+	return nil
+}
+
+type mockSchedulingEngine struct {
+	logger *slog.Logger
+}
+
+func (m *mockSchedulingEngine) ScheduleJob(ctx context.Context, job *TrainingJob) error {
+	m.logger.Debug("Mock SchedulingEngine: Scheduling job (no-op)", slog.String("job_id", job.Name))
+	return nil
+}
+
+func (m *mockSchedulingEngine) CancelJob(ctx context.Context, jobID string) error {
+	m.logger.Debug("Mock SchedulingEngine: Cancelling job (no-op)", slog.String("job_id", jobID))
+	return nil
+}
+
+func (m *mockSchedulingEngine) GetScheduledJobs(ctx context.Context) ([]*TrainingJob, error) {
+	m.logger.Debug("Mock SchedulingEngine: Getting scheduled jobs (empty list)")
+	return []*TrainingJob{}, nil
+}
+
 
 // RegisterClient registers a new federated learning client (xApp)
 func (c *FLCoordinator) RegisterClient(ctx context.Context, client *FLClient) error {

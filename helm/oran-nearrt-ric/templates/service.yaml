@@ -4,22 +4,20 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "oran-nearrt-ric.fullname" . }}-main-dashboard
-  namespace: {{ include "oran-nearrt-ric.namespace" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "oran-nearrt-ric.mainDashboard.labels" . | nindent 4 }}
-  {{- with .Values.mainDashboard.service.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- include "oran-nearrt-ric.labels" . | nindent 4 }}
+    app.kubernetes.io/component: main-dashboard
 spec:
   type: {{ .Values.mainDashboard.service.type }}
   ports:
     - port: {{ .Values.mainDashboard.service.port }}
-      targetPort: {{ .Values.mainDashboard.service.targetPort }}
+      targetPort: https
       protocol: TCP
-      name: http
+      name: https
   selector:
-    {{- include "oran-nearrt-ric.mainDashboard.selectorLabels" . | nindent 4 }}
+    {{- include "oran-nearrt-ric.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: main-dashboard
 {{- end }}
 
 ---
@@ -29,45 +27,18 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "oran-nearrt-ric.fullname" . }}-xapp-dashboard
-  namespace: {{ include "oran-nearrt-ric.namespace" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "oran-nearrt-ric.xappDashboard.labels" . | nindent 4 }}
-  {{- with .Values.xappDashboard.service.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- include "oran-nearrt-ric.labels" . | nindent 4 }}
+    app.kubernetes.io/component: xapp-dashboard
 spec:
   type: {{ .Values.xappDashboard.service.type }}
   ports:
     - port: {{ .Values.xappDashboard.service.port }}
-      targetPort: {{ .Values.xappDashboard.service.targetPort }}
+      targetPort: https
       protocol: TCP
-      name: http
+      name: https
   selector:
-    {{- include "oran-nearrt-ric.xappDashboard.selectorLabels" . | nindent 4 }}
-{{- end }}
-
----
-# Federated Learning Coordinator Service
-{{- if .Values.federatedLearning.enabled }}
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "oran-nearrt-ric.fullname" . }}-fl-coordinator
-  namespace: {{ include "oran-nearrt-ric.namespace" . }}
-  labels:
-    {{- include "oran-nearrt-ric.federatedLearning.labels" . | nindent 4 }}
-  {{- with .Values.federatedLearning.service.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-spec:
-  type: {{ .Values.federatedLearning.service.type }}
-  ports:
-    - port: {{ .Values.federatedLearning.service.port }}
-      targetPort: {{ .Values.federatedLearning.service.targetPort }}
-      protocol: TCP
-      name: http
-  selector:
-    {{- include "oran-nearrt-ric.federatedLearning.selectorLabels" . | nindent 4 }}
+    {{- include "oran-nearrt-ric.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: xapp-dashboard
 {{- end }}

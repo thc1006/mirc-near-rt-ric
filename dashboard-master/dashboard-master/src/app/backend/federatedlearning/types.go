@@ -564,70 +564,199 @@ type ClientInfo struct {
 
 // ClientStore holds the information about registered clients.
 type ClientStore struct {
-	Clients map[string]ClientInfo `json:"clients"`
+	Clients map[string]*FLClient `json:"clients"`
 	mutex   sync.RWMutex
 }
 
-// Store saves a client to the store
+// NewClientStore creates a new in-memory client store.
+func NewClientStore() *ClientStore {
+	return &ClientStore{
+		Clients: make(map[string]*FLClient),
+	}
+}
+
+// Store saves a client to the store.
 func (cs *ClientStore) Store(ctx context.Context, client *FLClient) error {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 	
-	if cs.Clients == nil {
-		cs.Clients = make(map[string]ClientInfo)
-	}
-	
-	cs.Clients[client.ID] = ClientInfo{
-		ID:           client.ID,
-		Name:         client.XAppName,
-		Status:       string(client.Status),
-		LastSeen:     client.LastHeartbeat,
-		Capabilities: []string{}, // Convert from RRMTasks if needed
-	}
+	cs.Clients[client.ID] = client
 	return nil
 }
 
-// Get retrieves a client from the store
+// Get retrieves a client from the store.
 func (cs *ClientStore) Get(ctx context.Context, clientID string) (*FLClient, error) {
 	cs.mutex.RLock()
 	defer cs.mutex.RUnlock()
 	
-	// Implementation placeholder - return a basic client
-	return &FLClient{ID: clientID}, nil
+	client, ok := cs.Clients[clientID]
+	if !ok {
+		return nil, fmt.Errorf("client %s not found", clientID)
+	}
+	return client, nil
 }
 
-// Delete removes a client from the store
+// Delete removes a client from the store.
 func (cs *ClientStore) Delete(ctx context.Context, clientID string) error {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 	
-	if cs.Clients != nil {
-		delete(cs.Clients, clientID)
-	}
+	delete(cs.Clients, clientID)
 	return nil
 }
 
-// List returns all clients from the store
+// List returns all clients from the store.
 func (cs *ClientStore) List(ctx context.Context) ([]*FLClient, error) {
 	cs.mutex.RLock()
 	defer cs.mutex.RUnlock()
 	
-	// Implementation placeholder - return empty list
-	return []*FLClient{}, nil
+	clients := make([]*FLClient, 0, len(cs.Clients))
+	for _, client := range cs.Clients {
+		clients = append(clients, client)
+	}
+	return clients, nil
 }
 
 // ModelStore manages storage and retrieval of federated learning models
 type ModelStore struct {
 	Models    map[string]*GlobalModel `json:"models"`
-	Versions  map[string][]string     `json:"versions"`
+	Versions  map[string][]string     `json:"versions"` // Stores versions for each model ID
 	mutex     sync.RWMutex
+}
+
+// NewModelStore creates a new in-memory model store.
+func NewModelStore() *ModelStore {
+	return &ModelStore{
+		Models:   make(map[string]*GlobalModel),
+		Versions: make(map[string][]string),
+	}
+}
+
+// CreateGlobalModel saves a new global model to the store.
+func (ms *ModelStore) CreateGlobalModel(ctx context.Context, model *GlobalModel) error {
+	ms.mutex.Lock()
+	defer ms.mutex.Unlock()
+
+	if _, exists := ms.Models[model.ID]; exists {
+		return fmt.Errorf("model with ID %s already exists", model.ID)
+	}
+
+	ms.Models[model.ID] = model
+	ms.Versions[model.ID] = append(ms.Versions[model.ID], model.Version)
+	return nil
+}
+
+// GetGlobalModel retrieves a global model by its ID.
+func (ms *ModelStore) GetGlobalModel(ctx context.Context, modelID string) (*GlobalModel, error) {
+	ms.mutex.RLock()
+	defer ms.mutex.RUnlock()
+
+	model, ok := ms.Models[modelID]
+	if !ok {
+		return nil, fmt.Errorf("model with ID %s not found", modelID)
+	}
+	return model, nil
+}
+
+// UpdateGlobalModel updates an existing global model in the store.
+func (ms *ModelStore) UpdateGlobalModel(ctx context.Context, model *GlobalModel) error {
+	ms.mutex.Lock()
+	defer ms.mutex.Unlock()
+
+	if _, exists := ms.Models[model.ID]; !exists {
+		return fmt.Errorf("model with ID %s not found for update", model.ID)
+	}
+
+	ms.Models[model.ID] = model
+	// Ensure version is added if it's new
+	found := false
+	for _, v := range ms.Versions[model.ID] {
+		if v == model.Version {
+			found = true
+			break
+		}
+	}
+	if !found {
+		ms.Versions[model.ID] = append(ms.Versions[model.ID], model.Version)
+	}
+	return nil
+}
+
+// ListGlobalModels returns all global models, optionally filtered by RRMTask.
+func (ms *ModelStore) ListGlobalModels(ctx context.Context, rrmTask RRMTaskType) ([]*GlobalModel, error) {
+	ms.mutex.RLock()
+	defer ms.mutex.RUnlock()
+
+	models := make([]*GlobalModel, 0, len(ms.Models))
+	for _, model := range ms.Models {
+		if rrmTask == "" || model.RRMTask == rrmTask {
+			models = append(models, model)
+		}
+	}
+	return models, nil
 }
 
 // MetricsStore manages storage and retrieval of training metrics
 type MetricsStore struct {
-	ClientMetrics map[string]*ClientRoundMetrics `json:"client_metrics"`
-	ModelMetrics  map[string]*ModelMetrics       `json:"model_metrics"`
+	ClientMetrics map[string]map[int64]*ClientRoundMetrics `json:"client_metrics"` // clientID -> round -> metrics
+	ModelMetrics  map[string]map[int64]*ModelMetrics       `json:"model_metrics"`  // modelID -> round -> metrics
 	mutex         sync.RWMutex
+}
+
+// NewMetricsStore creates a new in-memory metrics store.
+func NewMetricsStore() *MetricsStore {
+	return &MetricsStore{
+		ClientMetrics: make(map[string]map[int64]*ClientRoundMetrics),
+		ModelMetrics:  make(map[string]map[int64]*ModelMetrics),
+	}
+}
+
+// RecordClientMetrics records client-specific metrics for a round.
+func (ms *MetricsStore) RecordClientMetrics(ctx context.Context, clientID string, round int64, metrics *ClientRoundMetrics) error {
+	ms.mutex.Lock()
+	defer ms.mutex.Unlock()
+
+	if _, ok := ms.ClientMetrics[clientID]; !ok {
+		ms.ClientMetrics[clientID] = make(map[int64]*ClientRoundMetrics)
+	}
+	ms.ClientMetrics[clientID][round] = metrics
+	return nil
+}
+
+// RecordModelMetrics records global model metrics for a round.
+func (ms *MetricsStore) RecordModelMetrics(ctx context.Context, modelID string, round int64, metrics *ModelMetrics) error {
+	ms.mutex.Lock()
+	defer ms.mutex.Unlock()
+
+	if _, ok := ms.ModelMetrics[modelID]; !ok {
+		ms.ModelMetrics[modelID] = make(map[int64]*ModelMetrics)
+	}
+	ms.ModelMetrics[modelID][round] = metrics
+	return nil
+}
+
+// GetClientMetrics retrieves client-specific metrics.
+func (ms *MetricsStore) GetClientMetrics(ctx context.Context, clientID string) (map[int64]*ClientRoundMetrics, error) {
+	ms.mutex.RLock()
+	defer ms.mutex.RUnlock()
+
+	metrics, ok := ms.ClientMetrics[clientID]
+	if !ok {
+		return nil, fmt.Errorf("metrics for client %s not found", clientID)
+	}
+	return metrics, nil
+}
+
+// GetModelMetrics retrieves global model metrics.
+func (ms *MetricsStore) GetModelMetrics(ctx context.Context, modelID string) (map[int64]*ModelMetrics, error) {
+	ms.mutex.RLock()
+	defer ms.mutex.RUnlock()
+
+	metrics, ok := ms.ModelMetrics[modelID]
+	if !ok {
+		return nil, fmt.Errorf("metrics for model %s not found", modelID)
+	}
+	return metrics, nil
 }
 
 // CryptoEngine provides cryptographic operations for federated learning
@@ -1423,6 +1552,30 @@ type ResourceQuota struct {
 type FairnessController struct {
 	ControllerID string `json:"controller_id"`
 	Algorithm    string `json:"algorithm"`
+}
+
+// gRPC message types for xApp communication
+
+// SubmitModelUpdateRequest represents a gRPC request for submitting a model update.
+type SubmitModelUpdateRequest struct {
+	ClientID        string       `json:"client_id"`
+	ModelID         string       `json:"model_id"`
+	Round           int64        `json:"round"`
+	Parameters      []byte       `json:"parameters"`
+	ParametersHash  string       `json:"parameters_hash"`
+	DataSamplesCount int64       `json:"data_samples_count"`
+	LocalMetrics    *ModelMetrics `json:"local_metrics"`
+	Signature       []byte       `json:"signature"`
+	Timestamp       *time.Time   `json:"timestamp"`
+	Metadata        map[string]string `json:"metadata"`
+}
+
+// SubmitModelUpdateResponse represents a gRPC response for a model update submission.
+type SubmitModelUpdateResponse struct {
+	Status    string     `json:"status"`
+	Round     int64      `json:"round"`
+	Timestamp *time.Time `json:"timestamp"`
+	Message   string     `json:"message"`
 }
 
 // AllocationPolicy type and constants defined in config.go

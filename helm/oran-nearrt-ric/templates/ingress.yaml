@@ -1,0 +1,62 @@
+{{- if .Values.mainDashboard.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "oran-nearrt-ric.fullname" . }}-main-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "oran-nearrt-ric.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.mainDashboard.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.mainDashboard.ingress.className }}
+  tls:
+    {{- toYaml .Values.mainDashboard.ingress.tls | nindent 4 }}
+  rules:
+    {{- range .Values.mainDashboard.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "oran-nearrt-ric.fullname" . }}-main-dashboard
+                port:
+                  number: {{ $.Values.mainDashboard.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}
+
+---
+{{- if .Values.xappDashboard.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "oran-nearrt-ric.fullname" . }}-xapp-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "oran-nearrt-ric.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.xappDashboard.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.xappDashboard.ingress.className }}
+  tls:
+    {{- toYaml .Values.xappDashboard.ingress.tls | nindent 4 }}
+  rules:
+    {{- range .Values.xappDashboard.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "oran-nearrt-ric.fullname" . }}-xapp-dashboard
+                port:
+                  number: {{ $.Values.xappDashboard.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

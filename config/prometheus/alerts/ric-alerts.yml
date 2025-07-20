@@ -1,0 +1,92 @@
+groups:
+- name: ric-alerts
+  rules:
+  - alert: RICDown
+    expr: up{job="main-dashboard-backend"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "RIC component down"
+      description: "The RIC component {{ $labels.job }} is down."
+
+  - alert: xAppDown
+    expr: up{job="xapps"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "xApp down"
+      description: "The xApp {{ $labels.pod }} is down."
+
+  - alert: E2InterfaceDown
+    expr: up{job="e2-interface"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "E2 interface down"
+      description: "The E2 interface is down."
+
+  - alert: A1InterfaceDown
+    expr: up{job="a1-mediator"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "A1 interface down"
+      description: "The A1 interface is down."
+
+  - alert: O1InterfaceDown
+    expr: up{job="o1-interface"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "O1 interface down"
+      description: "The O1 interface is down."
+
+  - alert: HighE2Latency
+    expr: histogram_quantile(0.95, sum(rate(e2_latency_seconds_bucket[5m])) by (le)) > 1
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High E2 latency"
+      description: "The E2 latency is high."
+
+  - alert: LowA1PolicySuccessRate
+    expr: a1_policy_deployment_success_rate < 0.9
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Low A1 policy success rate"
+      description: "The A1 policy deployment success rate is low."
+
+  - alert: HighFLModelConvergenceTime
+    expr: histogram_quantile(0.95, sum(rate(fl_model_convergence_time_seconds_bucket[5m])) by (le)) > 10
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High federated learning model convergence time"
+      description: "The federated learning model convergence time is high."
+
+  - alert: HighGoBackendAPIResponseTime
+    expr: histogram_quantile(0.95, sum(rate(go_backend_api_response_times_seconds_bucket[5m])) by (le, endpoint)) > 1
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High Go backend API response time"
+      description: "The Go backend API response time for {{ $labels.endpoint }} is high."
+
+  - alert: HighAngularAppPerformance
+    expr: histogram_quantile(0.95, sum(rate(angular_app_performance_seconds_bucket[5m])) by (le)) > 1
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High Angular app performance"
+      description: "The Angular app performance is poor."
