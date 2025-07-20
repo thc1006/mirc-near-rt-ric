@@ -1,0 +1,54 @@
+# Configuration for chart-testing (ct)
+# Used by Helm chart testing action in CI/CD pipeline
+
+# Specify the target branch for pull request validation
+target-branch: main
+
+# Chart directories to include in testing
+chart-dirs:
+  - helm
+
+# Additional Helm repositories to add before testing
+helm-extra-args: --timeout 600s
+
+# Chart repositories (dependencies)
+chart-repos:
+  - name: prometheus-community
+    url: https://prometheus-community.github.io/helm-charts
+  - name: grafana  
+    url: https://grafana.github.io/helm-charts
+  - name: bitnami
+    url: https://charts.bitnami.com/bitnami
+
+# Linting configuration
+lint-conf: .github/lintconf.yaml
+
+# Additional arguments for helm lint
+helm-extra-args: --timeout 600s
+
+# Additional arguments for helm install during testing
+helm-extra-set-args:
+  - key: global.environment
+    value: ci
+  - key: mainDashboard.image.tag
+    value: latest
+  - key: xappDashboard.image.tag  
+    value: latest
+  - key: mainDashboard.ingress.enabled
+    value: false
+  - key: monitoring.prometheus.persistence.enabled
+    value: false
+  - key: monitoring.grafana.persistence.enabled
+    value: false
+
+# Exclude specific charts from testing (if needed)
+excluded-charts: []
+
+# Debug mode
+debug: false
+
+# Upgrade testing
+upgrade: true
+
+# Skip missing values warnings
+skip-missing-values: true

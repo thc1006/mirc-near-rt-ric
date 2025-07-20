@@ -1,0 +1,106 @@
+# Multi-stage Dockerfile for Federated Learning Coordinator
+# Based on main dashboard with FL extensions
+
+# Stage 1: Build the Go backend
+FROM golang:1.21-alpine AS go-builder
+
+# Install build dependencies
+RUN apk add --no-cache git make
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the binary with FL coordinator extensions
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -a -installsuffix cgo -o dashboard ./src/app/backend/main.go
+
+# Stage 2: Build the Angular frontend
+FROM node:18-alpine AS ng-builder
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy source code
+COPY . .
+
+# Build the Angular application for production
+RUN npm run build:prod
+
+# Stage 3: Production image with nginx
+FROM nginx:1.25-alpine AS production
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Copy custom nginx configuration
+COPY aio/nginx.conf /etc/nginx/nginx.conf
+
+# Copy built Go binary
+COPY --from=go-builder /workspace/dashboard /usr/local/bin/dashboard
+
+# Copy built Angular application
+COPY --from=ng-builder /workspace/dist/ /usr/share/nginx/html/
+
+# Create directories and set permissions
+RUN mkdir -p /var/log/nginx /var/cache/nginx /tmp/nginx \
+    && chown -R nginx:nginx /var/log/nginx /var/cache/nginx /tmp/nginx /usr/share/nginx/html \
+    && chmod -R 755 /var/log/nginx /var/cache/nginx /tmp/nginx
+
+# Copy FL coordinator configuration
+COPY config/fl-coordinator.yaml /etc/fl-coordinator/config.yaml
+
+# Create startup script for both services
+RUN cat > /usr/local/bin/start-fl-coordinator.sh << 'EOF'
+#!/bin/sh
+
+# Start the Go backend (FL coordinator) in background
+/usr/local/bin/dashboard \
+    --insecure-bind-address=0.0.0.0 \
+    --bind-address=0.0.0.0 \
+    --port=8080 \
+    --enable-insecure-login=false \
+    --system-banner="O-RAN Near-RT RIC - Federated Learning Coordinator" \
+    --fl-coordinator-mode=true \
+    --config-file=/etc/fl-coordinator/config.yaml &
+
+# Wait a moment for the backend to start
+sleep 2
+
+# Start nginx in foreground
+exec nginx -g "daemon off;"
+EOF
+
+RUN chmod +x /usr/local/bin/start-fl-coordinator.sh
+
+# Switch to non-root user
+USER nginx
+
+# Expose ports
+EXPOSE 80 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:80/ && curl -f http://localhost:8080/api/v1/fl/health || exit 1
+
+# Set environment variables for FL coordinator
+ENV FL_COORDINATOR_MODE=true
+ENV FL_MIN_CLIENTS=2
+ENV FL_AGGREGATION_STRATEGY=fedavg
+ENV FL_ROUND_TIMEOUT=300
+
+# Start both services
+CMD ["/usr/local/bin/start-fl-coordinator.sh"]
