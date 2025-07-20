@@ -1,15 +1,14 @@
 # 🌐 O-RAN Near-RT RIC Platform
 
-> In the O-RAN RIC Platform, we hope to design multiple xApps with different functions for network slicing, and introduce the federal learning framework to realize the vision of intelligent RRM while achieving slices (UEs) privacy.
+> An O-RAN Near Real-Time RAN Intelligent Controller platform implementing federated learning for intelligent Radio Resource Management (RRM) while maintaining network slice privacy and supporting multi-xApp deployment.
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/kubernetes/dashboard)](https://goreportcard.com/report/github.com/kubernetes/dashboard)
-[![Coverage Status](https://codecov.io/github/kubernetes/dashboard/coverage.svg?branch=master)](https://codecov.io/github/kubernetes/dashboard?branch=master)
-[![GitHub release](https://img.shields.io/github/release/kubernetes/dashboard.svg)](https://github.com/kubernetes/dashboard/releases/latest)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/kubernetes/dashboard/blob/master/LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![O-RAN Alliance](https://img.shields.io/badge/O--RAN-Compliant-green.svg)](https://www.o-ran.org/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.21%2B-blue.svg)](https://kubernetes.io/)
+[![Angular](https://img.shields.io/badge/Angular-13.3-red.svg)](https://angular.io/)
+[![Go](https://img.shields.io/badge/Go-1.17%2B-blue.svg)](https://golang.org/)
 
-A comprehensive **O-RAN (Open Radio Access Network) Near Real-Time RAN Intelligent Controller (Near-RT RIC)** platform featuring dual Angular dashboards for **xApp deployment**, **lifecycle management**, and **Kubernetes cluster oversight** with **sub-second latency requirements** (10ms-1s) for 5G/6G network automation.
+A comprehensive **O-RAN Near Real-Time RAN Intelligent Controller (Near-RT RIC)** platform featuring dual management dashboards for **xApp lifecycle management**, **Kubernetes cluster oversight**, and **federated learning coordination** with **sub-second latency requirements** (10ms-1s) for 5G/6G network automation.
 
 ## 🏗️ Architecture Overview
 
@@ -20,28 +19,30 @@ The Near-RT RIC platform implements **O-RAN Alliance specifications** with **10m
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │                           🌐 O-RAN Near-RT RIC Platform                            │
-│                          (5G/6G Network Intelligence & Automation)                 │
+│                     (Federated Learning + 5G/6G Network Intelligence)              │
 ├─────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                     │
 │  ┌──────────────────────┐                    ┌─────────────────────────────────┐  │
 │  │  📊 Main Dashboard   │◄──── HTTP/WS ────►│     🚀 xApp Dashboard           │  │
-│  │  (Port: 8080)        │                    │     (Port: 4200)                │  │
+│  │  (dashboard-master)  │                    │     (xAPP_dashboard-master)     │  │
+│  │  Port: 8080          │                    │     Port: 4200                  │  │
 │  │                      │                    │                                 │  │
 │  │ 🔹 Kubernetes UI     │                    │ 🔹 xApp Lifecycle Management   │  │
 │  │ 🔹 Cluster Mgmt      │                    │ 🔹 Container Orchestration     │  │
 │  │ 🔹 RBAC Control      │                    │ 🔹 Image Registry & History    │  │
-│  │ 🔹 Resource Monitor  │                    │ 🔹 Deployment Automation       │  │
-│  │ 🔹 Go Backend API    │                    │ 🔹 Angular 13.3+ Frontend      │  │
-│  │ 🔹 Metrics & Graphs  │                    │ 🔹 Real-time Status Updates    │  │
+│  │ 🔹 Resource Monitor  │                    │ 🔹 YANG Tree Browser           │  │
+│  │ 🔹 Go Backend API    │                    │ 🔹 Time Series Charts          │  │
+│  │ 🔹 Angular Frontend  │                    │ 🔹 Visualization Dashboard     │  │
 │  └──────────────────────┘                    └─────────────────────────────────┘  │
 │           │                                                  │                    │
 │           │                  ┌─────────────────────────────┐ │                    │
-│           │                  │  🔧 xApp Runtime Engine     │ │                    │
+│           │                  │  🤖 Federated Learning      │ │                    │
+│           │                  │     Coordinator             │ │                    │
 │           │                  │                             │ │                    │
-│           │                  │ • Container Management     │ │                    │
-│           │                  │ • Service Discovery        │ │                    │
-│           │                  │ • Load Balancing           │ │                    │
-│           │                  │ • Health Monitoring        │ │                    │
+│           │                  │ • Privacy-Preserving ML    │ │                    │
+│           │                  │ • Model Aggregation        │ │                    │
+│           │                  │ • xApp Intelligence        │ │                    │
+│           │                  │ • RRM Optimization         │ │                    │
 │           │                  └─────────────────────────────┘ │                    │
 │           └─────────────────────────┬───────────────────────┘                    │
 │                                     │                                            │
@@ -75,10 +76,9 @@ The Near-RT RIC platform implements **O-RAN Alliance specifications** with **10m
                     │  • Throughput: 1M+ msgs/sec          │
                     │  • Availability: 99.999%              │
                     │  • Multi-vendor Interoperability     │
+                    │  • Privacy-Preserving ML             │
                     └────────────────────────────────────────┘
 ```
-
-![Dashboard UI workloads page](https://github.com/user-attachments/assets/47a058da-63a8-4140-ae68-592e615c88df)
 
 
 ## 🚀 Quick Start
@@ -126,9 +126,8 @@ kubectl apply -f k8s/prerequisites/
 ```bash
 # Terminal 1: Main Dashboard (Go Backend + Angular Frontend)
 cd dashboard-master/dashboard-master
-make install-deps  # Install Go and Node dependencies
 make build         # Build both backend and frontend
-make start         # Start with hot-reload enabled
+make start         # Start development server
 
 # Terminal 2: xApp Dashboard (Pure Angular)
 cd xAPP_dashboard-master
@@ -145,10 +144,10 @@ kubectl get services -A
 # Access dashboards
 echo "🌐 Main Dashboard: http://localhost:8080"
 echo "🚀 xApp Dashboard: http://localhost:4200"
-echo "📊 Kubernetes Dashboard: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/"
 
-# Run health checks
-make test-health
+# Run tests
+cd dashboard-master/dashboard-master && make test
+cd ../../xAPP_dashboard-master && npm test
 ```
 
 ### 🐳 Docker Compose Setup (Alternative)
@@ -183,53 +182,58 @@ docker-compose down
 | K8s connection issues | Verify `kubectl cluster-info` returns valid cluster info |
 
 
-## Getting Started
+## 🚀 Getting Started
 
-**IMPORTANT:** Read the [Access Control](docs/user/access-control/README.md) guide before performing any further steps. The default Dashboard deployment contains a minimal set of RBAC privileges needed to run.
+**IMPORTANT:** Read the [Access Control](dashboard-master/dashboard-master/docs/user/access-control/README.md) guide before performing any further steps. The default Dashboard deployment contains a minimal set of RBAC privileges needed to run.
 
-### Deployment
+### 📦 Deployment
 
-#### Main Dashboard
+#### Main Dashboard (Kubernetes Management)
 ```bash
 cd dashboard-master/dashboard-master
 make deploy
 ```
 
-#### xApp Dashboard
+#### xApp Dashboard (xApp Lifecycle Management)
 ```bash
 cd xAPP_dashboard-master  
 npm run build
-kubectl apply -f k8s/
+# Deploy using Docker or Kubernetes manifests
+docker build -t xapp-dashboard .
+# OR kubectl apply -f k8s/ (if manifests exist)
 ```
 
 #### Full Platform Deployment
 ```bash
-# Deploy both dashboards
-make deploy-all
-
-# Or using individual Makefiles
+# Deploy main dashboard
 cd dashboard-master/dashboard-master && make deploy
-cd ../../xAPP_dashboard-master && kubectl apply -f k8s/
+
+# Build and deploy xApp dashboard
+cd ../../xAPP_dashboard-master && npm run build
 ```
 
-### Access
+### 🌐 Access
 
-To access Dashboard from your local workstation you must create a secure channel to your Kubernetes cluster. Run the following command:
+#### Development Access
+- **Main Dashboard**: `http://localhost:8080`
+- **xApp Dashboard**: `http://localhost:4200`
+
+#### Production Access
+To access Dashboard from your local workstation you must create a secure channel to your Kubernetes cluster:
 
 ```shell
 kubectl proxy
 ```
-Now access Dashboard at:
 
-[`http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/`](
-http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/).
+Then access the Main Dashboard at:
+[`http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/`](http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/)
 
-## Create An Authentication Token (RBAC)
-To find out how to create sample user and log in follow [Creating sample user](docs/user/access-control/creating-sample-user.md) guide.
+### 🔐 Authentication Setup (RBAC)
+To create a sample user and configure authentication, follow [Creating sample user](dashboard-master/dashboard-master/docs/user/access-control/creating-sample-user.md) guide.
 
-**NOTE:**
+**NOTES:**
 * Kubeconfig Authentication method does not support external identity providers or certificate-based authentication.
-* [Metrics-Server](https://github.com/kubernetes-sigs/metrics-server) has to be running in the cluster for the metrics and graphs to be available. Read more about it in [Integrations](docs/user/integrations.md) guide.
+* [Metrics-Server](https://github.com/kubernetes-sigs/metrics-server) has to be running in the cluster for the metrics and graphs to be available. Read more about it in [Integrations](dashboard-master/dashboard-master/docs/user/integrations.md) guide.
 
 ## 📚 O-RAN Alliance Specifications & Standards
 
@@ -317,22 +321,23 @@ This platform implements **O-RAN Alliance Release 3.0** architectural specificat
 
 ## 📖 Documentation
 
-Comprehensive documentation is available in the [docs](docs/README.md) directory:
+Comprehensive documentation is available across multiple directories:
 
 ### 📚 User Documentation
 - [**Common Guide**](dashboard-master/dashboard-master/docs/common/README.md) - Entry-level overview and concepts
-- [**User Guide**](docs/user/README.md) - Complete user manual including:
+- [**Main Dashboard User Guide**](dashboard-master/dashboard-master/docs/user/README.md) - Complete user manual including:
   - [Installation Guide](dashboard-master/dashboard-master/docs/user/installation.md) - Step-by-step setup instructions
   - [Accessing Dashboard](dashboard-master/dashboard-master/docs/user/accessing-dashboard/README.md) - Authentication and access methods
   - [RBAC Configuration](dashboard-master/dashboard-master/docs/user/access-control/README.md) - Security and permissions
   - [Integration Guide](dashboard-master/dashboard-master/docs/user/integrations.md) - Third-party integrations
 
 ### 🛠️ Developer Documentation
-- [**Developer Guide**](dashboard-master/dashboard-master/docs/developer/README.md) - Development workflows including:
+- [**Main Dashboard Developer Guide**](dashboard-master/dashboard-master/docs/developer/README.md) - Development workflows including:
   - [Getting Started](dashboard-master/dashboard-master/docs/developer/getting-started.md) - Development environment setup
   - [Dependency Management](dashboard-master/dashboard-master/docs/developer/dependency-management.md) - Package and library management
-  - [API Reference](docs/developer/api-reference.md) - REST API documentation
   - [Architecture Design](dashboard-master/dashboard-master/docs/developer/architecture.md) - System architecture details
+- [**xApp Dashboard**](xAPP_dashboard-master/README.md) - xApp Dashboard specific documentation
+- [**API Reference**](docs/developer/api-reference.md) - REST API documentation
 
 ### 🔧 Operations Documentation
 - [**Deployment Guide**](docs/operations/deployment.md) - Production deployment
@@ -340,29 +345,55 @@ Comprehensive documentation is available in the [docs](docs/README.md) directory
 - [**Troubleshooting**](docs/operations/troubleshooting.md) - Common issues and solutions
 - [**Performance Tuning**](docs/operations/performance.md) - Optimization guidelines
 
-## Community, discussion, contribution, and support
+### 🧬 Advanced Topics
+- [**Federated Learning Implementation**](docs/MODERNIZATION_EXAMPLES.md) - ML coordination details
+- [**Angular Migration Plan**](docs/ANGULAR_MIGRATION_PLAN.md) - Frontend modernization
+- [**Performance Analysis**](docs/perf/OPTIMIZATION_SUMMARY.md) - System optimization insights
 
-Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
+## 🤝 Community & Support
 
-You can reach the maintainers of this project at:
+This project is part of the O-RAN Software Community ecosystem. For support and contributions:
 
-* [**#sig-ui on Kubernetes Slack**](https://kubernetes.slack.com)
-* [**kubernetes-sig-ui mailing list** ](https://groups.google.com/forum/#!forum/kubernetes-sig-ui)
-* [**Issue tracker**](https://github.com/kubernetes/dashboard/issues)
-* [**SIG info**](https://github.com/kubernetes/community/tree/master/sig-ui)
-* [**Roles**](ROLES.md)
+### 📞 Getting Help
+* [**O-RAN Software Community**](https://o-ran-sc.org/) - Primary community hub
+* [**Issue Tracker**](../../issues) - Report bugs and request features
+* [**Documentation**](docs/README.md) - Comprehensive guides and references
 
-### Contribution
+### 🛠️ Contributing
 
-Learn how to start contribution on the [Contributing Guideline](CONTRIBUTING.md).
+We welcome contributions to improve the Near-RT RIC platform:
 
-### Code of conduct
+1. **Main Dashboard**: See [Contributing Guidelines](dashboard-master/dashboard-master/CONTRIBUTING.md)
+2. **xApp Dashboard**: Follow standard Angular contribution practices
+3. **Documentation**: Help improve our guides and examples
 
-Participation in the Kubernetes community is governed by the [Kubernetes Code of Conduct](code-of-conduct.md).
+### 📋 Development Guidelines
+- Follow [Code Conventions](dashboard-master/dashboard-master/docs/developer/code-conventions.md)
+- Read [Architecture Documentation](dashboard-master/dashboard-master/docs/developer/architecture.md)
+- Check [Development Setup](docs/DEV_SETUP.md) for environment configuration
 
-## License
+### 🏛️ Governance & Standards
+This project adheres to:
+* [**O-RAN Alliance Standards**](https://www.o-ran.org/specifications)
+* [**Kubernetes Code of Conduct**](dashboard-master/dashboard-master/code-of-conduct.md)
+* [**Apache License 2.0**](LICENSE) licensing
 
-[Apache License 2.0](https://github.com/kubernetes/dashboard/blob/master/LICENSE)
+## 📄 License
 
-----
-_Copyright 2019 [The Kubernetes Dashboard Authors](https://github.com/kubernetes/dashboard/graphs/contributors)_
+[Apache License 2.0](LICENSE)
+
+---
+
+### 🏷️ Project Structure
+```
+near-rt-ric/
+├── dashboard-master/           # Main Kubernetes Dashboard
+│   └── dashboard-master/       # Go backend + Angular frontend
+├── xAPP_dashboard-master/      # xApp Management Dashboard  
+├── docs/                       # Project documentation
+├── CLAUDE.md                   # AI assistant guidelines
+└── README.md                   # This file
+```
+
+---
+_This Near-RT RIC platform implementation supports O-RAN Alliance specifications for 5G/6G network intelligence and automation._
