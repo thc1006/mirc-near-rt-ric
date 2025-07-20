@@ -890,17 +890,26 @@ type HistoricalPattern struct {
 	PatternMetadata    map[string]interface{} `json:"pattern_metadata"`
 }
 
-// ByzantineFTConfig represents Byzantine fault tolerance configuration
-type ByzantineFTConfig struct {
-	Enabled                bool                    `json:"enabled"`
-	DetectionMethods       []ByzantineDetectionType `json:"detection_methods"`
-	DetectionThreshold     float64                 `json:"detection_threshold"`
-	ResponseActions        []ResponseAction        `json:"response_actions"`
-	QuarantineDuration     time.Duration           `json:"quarantine_duration"`
-	MaxToleratedFaults     int                     `json:"max_tolerated_faults"`
-	MinConsensusNodes      int                     `json:"min_consensus_nodes"`
-	ValidationRounds       int                     `json:"validation_rounds"`
-	AnomalyScoreThreshold  float64                 `json:"anomaly_score_threshold"`
-	HistoryWindowSize      int                     `json:"history_window_size"`
-	MonitoringInterval     time.Duration           `json:"monitoring_interval"`
+// PeerComparisonResult represents the result of comparing clients with peers
+type PeerComparisonResult struct {
+	ClientID           string            `json:"client_id"`
+	PeerGroup          []string          `json:"peer_group"`
+	ComparisonMetrics  map[string]float64 `json:"comparison_metrics"`
+	DeviationScore     float64           `json:"deviation_score"`
+	IsSuspicious       bool              `json:"is_suspicious"`
+	SuspicionReasons   []string          `json:"suspicion_reasons"`
+	ConfidenceLevel    float64           `json:"confidence_level"`
+	ComparisonTime     time.Time         `json:"comparison_time"`
 }
+
+// ExternalValidationResult represents results from external validation
+type ExternalValidationResult struct {
+	ValidatorID        string            `json:"validator_id"`
+	ValidationMethod   string            `json:"validation_method"`
+	IsValid            bool              `json:"is_valid"`
+	ConfidenceScore    float64           `json:"confidence_score"`
+	ValidationDetails  map[string]interface{} `json:"validation_details"`
+	Timestamp          time.Time         `json:"timestamp"`
+	ErrorMessage       string            `json:"error_message,omitempty"`
+}
+

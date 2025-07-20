@@ -16,9 +16,13 @@
         "createDefaultProgram": true
       },
       "extends": [
-        "@angular-eslint/eslint-plugin/recommended",
+        "eslint:recommended",
         "@typescript-eslint/recommended",
         "@angular-eslint/template/process-inline-templates"
+      ],
+      "plugins": [
+        "@angular-eslint/eslint-plugin",
+        "@typescript-eslint"
       ],
       "rules": {
         "@angular-eslint/component-class-suffix": "error",

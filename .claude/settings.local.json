@@ -21,7 +21,10 @@
       "Bash(ls:*)",
       "Bash(go vet:*)",
       "Bash(npm run lint)",
-      "Bash(helm lint:*)"
+      "Bash(helm lint:*)",
+      "Bash(grep:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm audit:*)"
     ],
     "deny": []
   }
