@@ -1,0 +1,444 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: resource-allocation-xapp-config
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: resource-allocation-xapp
+    app.kubernetes.io/component: xapp
+    app.kubernetes.io/part-of: oran-nearrt-ric
+data:
+  config.yaml: |
+    # Resource Allocation xApp Configuration
+    # Implements intelligent resource allocation using federated learning
+    
+    xapp:
+      name: "resource-allocation"
+      version: "1.0.0"
+      description: "Intelligent resource allocation xApp using federated learning"
+      
+    # E2 Interface configuration
+    e2:
+      endpoint: "e2-termination:38000"
+      ran_functions:
+        - id: 1
+          name: "KPM"
+          version: "3.0"
+          description: "Key Performance Measurement"
+        - id: 2
+          name: "RC"
+          version: "3.0"
+          description: "RAN Control"
+      subscription:
+        reporting_period_ms: 1000
+        measurement_types:
+          - "DRB.UEThpDl"
+          - "DRB.UEThpUl"
+          - "RRU.PrbTotDl"
+          - "RRU.PrbTotUl"
+          - "RRC.ConnEstabSucc"
+    
+    # A1 Interface configuration
+    a1:
+      endpoint: "a1-mediator:10020"
+      policy_types:
+        - id: 1
+          name: "resource_allocation_policy"
+          description: "Resource allocation policy for RRM optimization"
+          
+    # Federated Learning configuration
+    federated_learning:
+      coordinator_endpoint: "fl-coordinator:8080"
+      rrm_task: "resource_allocation"
+      ml_framework: "pytorch"
+      model_params:
+        learning_rate: 0.001
+        batch_size: 32
+        epochs: 10
+        aggregation_rounds: 100
+      privacy:
+        differential_privacy: true
+        epsilon: 1.0
+        delta: 1e-5
+        
+    # Algorithm configuration
+    algorithm:
+      optimization_method: "deep_reinforcement_learning"
+      reward_function: "weighted_sum"
+      weights:
+        throughput: 0.4
+        latency: 0.3
+        energy_efficiency: 0.2
+        fairness: 0.1
+      action_space:
+        prb_allocation: [0, 100]  # PRB allocation percentage
+        power_control: [-10, 23]  # Power in dBm
+        mcs_selection: [0, 28]    # Modulation and Coding Scheme
+        
+    # Metrics and monitoring
+    metrics:
+      collection_interval_s: 30
+      export_prometheus: true
+      export_grafana: true
+      kpis:
+        - "average_throughput"
+        - "cell_edge_throughput" 
+        - "spectral_efficiency"
+        - "energy_efficiency"
+        - "user_fairness_index"
+        
+    # Logging configuration
+    logging:
+      level: "INFO"
+      format: "json"
+      output: "stdout"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resource-allocation-xapp
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: resource-allocation-xapp
+    app.kubernetes.io/component: xapp
+    app.kubernetes.io/part-of: oran-nearrt-ric
+    app.kubernetes.io/version: "1.0.0"
+    oran.org/xapp-type: "ml-enhanced"
+    oran.org/rrm-task: "resource-allocation"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: resource-allocation-xapp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: resource-allocation-xapp
+        app.kubernetes.io/component: xapp
+        app.kubernetes.io/part-of: oran-nearrt-ric
+        oran.org/xapp-type: "ml-enhanced"
+        oran.org/rrm-task: "resource-allocation"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+        sidecar.istio.io/inject: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      initContainers:
+      - name: wait-for-dependencies
+        image: busybox:1.35
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for dependencies to be ready..."
+          
+          # Wait for E2 Termination
+          until nc -z e2-termination 38000; do
+            echo "E2 Termination not ready, waiting..."
+            sleep 5
+          done
+          
+          # Wait for A1 Mediator
+          until nc -z a1-mediator 10020; do
+            echo "A1 Mediator not ready, waiting..."
+            sleep 5
+          done
+          
+          # Wait for FL Coordinator
+          until nc -z fl-coordinator 8080; do
+            echo "FL Coordinator not ready, waiting..."
+            sleep 5
+          done
+          
+          echo "All dependencies are ready!"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      containers:
+      - name: resource-allocation-xapp
+        image: oran/xapp-resource-allocation:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: grpc
+          containerPort: 9090
+          protocol: TCP
+        - name: metrics
+          containerPort: 9091
+          protocol: TCP
+        env:
+        - name: XAPP_NAME
+          value: "resource-allocation"
+        - name: XAPP_VERSION
+          value: "1.0.0"
+        - name: XAPP_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: XAPP_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: E2_ENDPOINT
+          value: "e2-termination:38000"
+        - name: A1_ENDPOINT
+          value: "a1-mediator:10020"
+        - name: FL_COORDINATOR
+          value: "fl-coordinator:8080"
+        - name: RRM_TASK
+          value: "resource_allocation"
+        - name: ML_FRAMEWORK
+          value: "pytorch"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: METRICS_PORT
+          value: "9091"
+        - name: CONFIG_FILE
+          value: "/config/config.yaml"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+            nvidia.com/gpu: 0
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+            nvidia.com/gpu: 1
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1001
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: data
+          mountPath: /data
+        - name: models
+          mountPath: /models
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: config
+        configMap:
+          name: resource-allocation-xapp-config
+      - name: data
+        emptyDir: {}
+      - name: models
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      nodeSelector:
+        kubernetes.io/os: linux
+        node-type: oran-worker
+      tolerations:
+      - key: "node-type"
+        operator: "Equal"
+        value: "oran-worker"
+        effect: "NoSchedule"
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: workload
+                operator: In
+                values:
+                - nearrt-ric
+              - key: accelerator
+                operator: In
+                values:
+                - gpu
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: resource-allocation-xapp
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: resource-allocation-xapp
+    app.kubernetes.io/component: xapp
+    app.kubernetes.io/part-of: oran-nearrt-ric
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9091"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+    protocol: TCP
+  - name: grpc
+    port: 9090
+    targetPort: grpc
+    protocol: TCP
+  - name: metrics
+    port: 9091
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: resource-allocation-xapp
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: resource-allocation-xapp
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: resource-allocation-xapp
+    app.kubernetes.io/component: xapp
+    app.kubernetes.io/part-of: oran-nearrt-ric
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: resource-allocation-xapp
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: resource-allocation-xapp
+    app.kubernetes.io/component: xapp
+    app.kubernetes.io/part-of: oran-nearrt-ric
+rules:
+# Allow reading configuration
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+# Allow reading other xApps for coordination
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+# Allow updating own status
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["patch", "update"]
+  resourceNames: ["resource-allocation-xapp"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: resource-allocation-xapp
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: resource-allocation-xapp
+    app.kubernetes.io/component: xapp
+    app.kubernetes.io/part-of: oran-nearrt-ric
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: resource-allocation-xapp
+subjects:
+- kind: ServiceAccount
+  name: resource-allocation-xapp
+  namespace: oran-nearrt-ric
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: resource-allocation-xapp
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: resource-allocation-xapp
+    app.kubernetes.io/component: xapp
+    app.kubernetes.io/part-of: oran-nearrt-ric
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: resource-allocation-xapp
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: resource-allocation-xapp-pdb
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: resource-allocation-xapp
+    app.kubernetes.io/component: xapp
+    app.kubernetes.io/part-of: oran-nearrt-ric
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: resource-allocation-xapp
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: resource-allocation-xapp-hpa
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: resource-allocation-xapp
+    app.kubernetes.io/component: xapp
+    app.kubernetes.io/part-of: oran-nearrt-ric
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: resource-allocation-xapp
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: xapp_processing_latency_seconds
+      target:
+        type: AverageValue
+        averageValue: "100m"  # 100ms average latency

@@ -1,0 +1,607 @@
+# Default values for O-RAN Near-RT RIC Platform
+# This file contains default configuration values
+
+# Global configuration
+global:
+  # Image registry
+  imageRegistry: ""
+  
+  # Image pull secrets
+  imagePullSecrets: []
+  
+  # Storage class for persistent volumes
+  storageClass: ""
+  
+  # O-RAN specific configuration
+  oran:
+    # PLMN ID for the network
+    plmnId: "310410"
+    
+    # Network domain
+    domain: "oran.local"
+    
+    # E2 Interface configuration
+    e2:
+      port: 36421
+      protocol: sctp
+      
+    # A1 Interface configuration  
+    a1:
+      port: 10020
+      protocol: http
+      
+    # O1 Interface configuration
+    o1:
+      port: 830
+      protocol: netconf
+
+# Main Dashboard (Kubernetes Dashboard + O-RAN extensions)
+mainDashboard:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oran/main-dashboard
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 2
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    annotations: {}
+  
+  # Ingress configuration
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: []
+    tls: []
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+    limits:
+      cpu: 500m
+      memory: 500Mi
+  
+  # Environment variables
+  env:
+    tokenTtl: 900
+    bindAddress: "0.0.0.0"
+    port: 8080
+    autoGenerateCerts: true
+    enableInsecureLogin: false
+    enableSkipLogin: false
+    systemBanner: "O-RAN Near-RT RIC"
+    systemBannerSeverity: "INFO"
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    fsGroup: 1001
+  
+  # Pod security context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    fsGroup: 1001
+  
+  # Node selector
+  nodeSelector: {}
+  
+  # Tolerations
+  tolerations: []
+  
+  # Affinity
+  affinity: {}
+  
+  # Persistent volume configuration
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 1Gi
+
+# xApp Dashboard (xApp Lifecycle Management)
+xappDashboard:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oran/xapp-dashboard
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 2
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+    annotations: {}
+  
+  # Ingress configuration
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: []
+    tls: []
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  
+  # Environment variables
+  env:
+    nodeEnv: production
+    apiBaseUrl: "http://main-dashboard:8080"
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    fsGroup: 1001
+  
+  # Node selector
+  nodeSelector: {}
+  
+  # Tolerations
+  tolerations: []
+  
+  # Affinity
+  affinity: {}
+
+# Federated Learning Coordinator
+federatedLearning:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oran/fl-coordinator
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 1
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    annotations: {}
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  # Environment variables
+  env:
+    flMode: coordinator
+    flBindAddress: "0.0.0.0"
+    flPort: 8080
+    flModelStorage: "/data/models"
+    flClientTimeout: 300
+    flAggregationStrategy: "fedavg"
+    flMinClients: 2
+    flMaxRounds: 100
+  
+  # Persistent volume for models
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    fsGroup: 1001
+
+# E2 Simulator (O-RAN E2 Interface)
+e2Simulator:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oransoftwarecommunity/ric-plt-e2sim
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 1
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      - name: e2-sctp
+        port: 36421
+        targetPort: 36421
+        protocol: SCTP
+      - name: e2-tcp
+        port: 36422
+        targetPort: 36422
+        protocol: TCP
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  
+  # Environment variables
+  env:
+    e2simMode: "DU"
+    e2simIp: "0.0.0.0"
+    e2simPort: 36421
+    e2tIp: "e2-termination"
+    e2tPort: 38000
+    plmnId: "310410"
+    cellId: 1
+    gnbId: "001"
+
+# E2 Termination
+e2Termination:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oransoftwarecommunity/ric-plt-e2
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 1
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      - name: e2t-sctp
+        port: 38000
+        targetPort: 38000
+        protocol: SCTP
+      - name: e2t-tcp
+        port: 38001
+        targetPort: 38001
+        protocol: TCP
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+# O-CU Simulator
+oCuSimulator:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oransoftwarecommunity/o-cu-cp-sim
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 1
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      - name: f1-sctp
+        port: 38462
+        targetPort: 38462
+        protocol: SCTP
+      - name: http
+        port: 8080
+        targetPort: 8080
+        protocol: TCP
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  
+  # Environment variables
+  env:
+    ocuMode: "CP"
+    ocuIp: "0.0.0.0"
+    ocuPort: 38462
+    duIp: "o-du-simulator"
+    duPort: 38472
+    plmnId: "310410"
+    cellCount: 3
+
+# O-DU Simulator
+oDuSimulator:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oransoftwarecommunity/o-du-l2-sim
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 1
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      - name: f1-sctp
+        port: 38472
+        targetPort: 38472
+        protocol: SCTP
+      - name: http
+        port: 8080
+        targetPort: 8080
+        protocol: TCP
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# O-RU Simulator
+oRuSimulator:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oransoftwarecommunity/o-ru-sim
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 1
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      - name: fronthaul
+        port: 7071
+        targetPort: 7071
+        protocol: UDP
+      - name: netconf
+        port: 830
+        targetPort: 830
+        protocol: TCP
+      - name: http
+        port: 8080
+        targetPort: 8080
+        protocol: TCP
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# A1 Mediator (Policy Interface)
+a1Mediator:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oransoftwarecommunity/ric-plt-a1
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 1
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    ports:
+      - name: http
+        port: 10020
+        targetPort: 10020
+        protocol: TCP
+      - name: https
+        port: 7080
+        targetPort: 7080
+        protocol: TCP
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# Sample xApps
+xapps:
+  # Resource Allocation xApp
+  resourceAllocation:
+    enabled: true
+    image:
+      repository: oran/xapp-resource-allocation
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  
+  # Traffic Prediction xApp
+  trafficPrediction:
+    enabled: true
+    image:
+      repository: oran/xapp-traffic-prediction
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# SMO (Service Management & Orchestration) Mock
+smo:
+  enabled: true
+  
+  # Image configuration
+  image:
+    repository: oran/smo-mock
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 1
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Redis (Key-Value Store)
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    password: "oran123"
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# PostgreSQL (Database)
+postgresql:
+  enabled: true
+  auth:
+    database: "oran_nearrt_ric"
+    username: "oran"
+    password: "oran123"
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+# Monitoring configuration
+monitoring:
+  # Prometheus
+  prometheus:
+    enabled: true
+    server:
+      retention: "7d"
+      persistentVolume:
+        enabled: true
+        size: 10Gi
+  
+  # Grafana
+  grafana:
+    enabled: true
+    adminPassword: "admin123"
+    persistence:
+      enabled: true
+      size: 5Gi
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards
+
+# Network Policies
+networkPolicies:
+  enabled: false
+
+# Pod Disruption Budgets
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Horizontal Pod Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Service Monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+
+# RBAC configuration
+rbac:
+  create: true
+
+# Service Account configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""

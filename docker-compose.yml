@@ -1,0 +1,453 @@
+# Docker Compose for O-RAN Near-RT RIC Platform Development Environment
+# This provides a quick development setup without Kubernetes
+
+version: '3.8'
+
+services:
+  # Main Dashboard (Kubernetes Dashboard + O-RAN extensions)
+  main-dashboard:
+    build:
+      context: ./dashboard-master/dashboard-master
+      dockerfile: aio/Dockerfile
+      args:
+        GOOS: linux
+        GOARCH: amd64
+    container_name: oran-main-dashboard
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    environment:
+      - KUBECONFIG=/tmp/kubeconfig
+      - TOKEN_TTL=900
+      - BIND_ADDRESS=0.0.0.0
+      - PORT=8080
+      - AUTO_GENERATE_CERTS=true
+      - ENABLE_INSECURE_LOGIN=true
+      - ENABLE_SKIP_LOGIN=true
+      - SYSTEM_BANNER=Development Environment
+      - SYSTEM_BANNER_SEVERITY=INFO
+    volumes:
+      - ./k8s/kubeconfig:/tmp/kubeconfig:ro
+      - dashboard-certs:/certs
+    networks:
+      - oran-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/login/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # xApp Dashboard (Angular application)
+  xapp-dashboard:
+    build:
+      context: ./xAPP_dashboard-master
+      dockerfile: Dockerfile
+    container_name: oran-xapp-dashboard
+    ports:
+      - "4200:80"
+    environment:
+      - NODE_ENV=development
+      - API_BASE_URL=http://main-dashboard:8080
+    networks:
+      - oran-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Federated Learning Coordinator (Extended from main dashboard)
+  fl-coordinator:
+    build:
+      context: ./dashboard-master/dashboard-master
+      dockerfile: aio/Dockerfile
+      args:
+        GOOS: linux
+        GOARCH: amd64
+    container_name: oran-fl-coordinator
+    ports:
+      - "8090:8080"
+    environment:
+      - KUBECONFIG=/tmp/kubeconfig
+      - FL_MODE=coordinator
+      - FL_BIND_ADDRESS=0.0.0.0
+      - FL_PORT=8080
+      - FL_MODEL_STORAGE=/data/models
+      - FL_CLIENT_TIMEOUT=300
+      - FL_AGGREGATION_STRATEGY=fedavg
+      - FL_MIN_CLIENTS=2
+      - FL_MAX_ROUNDS=100
+    volumes:
+      - ./k8s/kubeconfig:/tmp/kubeconfig:ro
+      - fl-models:/data/models
+    networks:
+      - oran-net
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - postgres
+
+  # E2 Simulator (O-RAN E2 Interface)
+  e2-simulator:
+    image: oransoftwarecommunity/ric-plt-e2sim:latest
+    container_name: oran-e2-simulator
+    ports:
+      - "36421:36421/sctp"
+      - "36422:36422/tcp"
+    environment:
+      - E2SIM_MODE=DU
+      - E2SIM_IP=0.0.0.0
+      - E2SIM_PORT=36421
+      - E2T_IP=e2-termination
+      - E2T_PORT=38000
+      - PLMN_ID=310410
+      - CELL_ID=1
+      - GNB_ID=001
+    volumes:
+      - ./config/e2sim:/config:ro
+      - e2sim-logs:/var/log/e2sim
+    networks:
+      - oran-net
+    restart: unless-stopped
+    depends_on:
+      - e2-termination
+
+  # E2 Termination
+  e2-termination:
+    image: oransoftwarecommunity/ric-plt-e2:latest
+    container_name: oran-e2-termination
+    ports:
+      - "38000:38000/sctp"
+      - "38001:38001/tcp"
+    environment:
+      - RMR_SEED_RT=/opt/e2/rmr_route.rt
+      - RMR_RTG_SVC=4561
+      - RMR_SRC_ID=e2term
+    volumes:
+      - ./config/e2term:/opt/e2:ro
+      - e2term-logs:/var/log/e2term
+    networks:
+      - oran-net
+    restart: unless-stopped
+
+  # O-CU Simulator  
+  o-cu-simulator:
+    image: oransoftwarecommunity/o-cu-cp-sim:latest
+    container_name: oran-o-cu-simulator
+    ports:
+      - "38462:38462/sctp"
+      - "8091:8080/tcp"
+    environment:
+      - OCU_MODE=CP
+      - OCU_IP=0.0.0.0
+      - OCU_PORT=38462
+      - DU_IP=o-du-simulator
+      - DU_PORT=38472
+      - PLMN_ID=310410
+      - CELL_COUNT=3
+    volumes:
+      - ./config/o-cu:/config:ro
+      - ocu-logs:/var/log/o-cu
+    networks:
+      - oran-net
+    restart: unless-stopped
+
+  # O-DU Simulator
+  o-du-simulator:
+    image: oransoftwarecommunity/o-du-l2-sim:latest
+    container_name: oran-o-du-simulator
+    ports:
+      - "38472:38472/sctp"
+      - "8092:8080/tcp"
+    environment:
+      - ODU_MODE=L2
+      - ODU_IP=0.0.0.0
+      - ODU_PORT=38472
+      - CU_IP=o-cu-simulator
+      - CU_PORT=38462
+      - RU_IP=o-ru-simulator
+      - RU_PORT=7071
+      - PLMN_ID=310410
+    volumes:
+      - ./config/o-du:/config:ro
+      - odu-logs:/var/log/o-du
+    networks:
+      - oran-net
+    restart: unless-stopped
+
+  # O-RU Simulator
+  o-ru-simulator:
+    image: oransoftwarecommunity/o-ru-sim:latest
+    container_name: oran-o-ru-simulator
+    ports:
+      - "7071:7071/udp"
+      - "830:830/tcp"
+      - "8093:8080/tcp"
+    environment:
+      - ORU_MODE=FH
+      - ORU_IP=0.0.0.0
+      - ORU_PORT=7071
+      - DU_IP=o-du-simulator
+      - DU_PORT=38472
+      - NETCONF_PORT=830
+      - NETCONF_USER=admin
+      - NETCONF_PASS=admin
+    volumes:
+      - ./config/o-ru:/config:ro
+      - oru-logs:/var/log/o-ru
+    networks:
+      - oran-net
+    restart: unless-stopped
+
+  # Sample xApp 1: Resource Allocation xApp
+  xapp-resource-allocation:
+    build:
+      context: ./xapps/resource-allocation
+      dockerfile: Dockerfile
+    container_name: oran-xapp-resource-allocation
+    ports:
+      - "8100:8080"
+    environment:
+      - XAPP_NAME=resource-allocation
+      - XAPP_VERSION=1.0.0
+      - XAPP_NAMESPACE=default
+      - E2_ENDPOINT=e2-termination:38000
+      - A1_ENDPOINT=a1-mediator:10020
+      - FL_COORDINATOR=fl-coordinator:8080
+      - RRM_TASK=resource_allocation
+      - ML_FRAMEWORK=pytorch
+    volumes:
+      - ./config/xapps/resource-allocation:/config:ro
+      - xapp-ra-data:/data
+    networks:
+      - oran-net
+    restart: unless-stopped
+    depends_on:
+      - e2-termination
+      - a1-mediator
+      - fl-coordinator
+
+  # Sample xApp 2: Traffic Prediction xApp
+  xapp-traffic-prediction:
+    build:
+      context: ./xapps/traffic-prediction
+      dockerfile: Dockerfile
+    container_name: oran-xapp-traffic-prediction
+    ports:
+      - "8101:8080"
+    environment:
+      - XAPP_NAME=traffic-prediction
+      - XAPP_VERSION=1.0.0
+      - XAPP_NAMESPACE=default
+      - E2_ENDPOINT=e2-termination:38000
+      - A1_ENDPOINT=a1-mediator:10020
+      - FL_COORDINATOR=fl-coordinator:8080
+      - RRM_TASK=traffic_prediction
+      - ML_FRAMEWORK=tensorflow
+    volumes:
+      - ./config/xapps/traffic-prediction:/config:ro
+      - xapp-tp-data:/data
+    networks:
+      - oran-net
+    restart: unless-stopped
+    depends_on:
+      - e2-termination
+      - a1-mediator
+      - fl-coordinator
+
+  # A1 Mediator (Policy Interface)
+  a1-mediator:
+    image: oransoftwarecommunity/ric-plt-a1:latest
+    container_name: oran-a1-mediator
+    ports:
+      - "10020:10020/tcp"
+      - "7080:7080/tcp"
+    environment:
+      - A1_HTTP_PORT=10020
+      - A1_HTTPS_PORT=7080
+      - A1_RMR_PORT=4562
+      - RMR_SEED_RT=/opt/a1-mediator/rmr_route.rt
+      - RMR_SRC_ID=a1mediator
+      - SDL_HOST=redis
+      - SDL_PORT=6379
+    volumes:
+      - ./config/a1-mediator:/opt/a1-mediator:ro
+      - a1-logs:/var/log/a1-mediator
+    networks:
+      - oran-net
+    restart: unless-stopped
+    depends_on:
+      - redis
+
+  # SMO (Service Management & Orchestration) Mock
+  smo-mock:
+    build:
+      context: ./smo
+      dockerfile: Dockerfile
+    container_name: oran-smo-mock
+    ports:
+      - "9000:8080"
+    environment:
+      - SMO_MODE=mock
+      - SMO_IP=0.0.0.0
+      - SMO_PORT=8080
+      - A1_ENDPOINT=a1-mediator:10020
+      - O1_ENDPOINT=o-ru-simulator:830
+      - NETCONF_USER=admin
+      - NETCONF_PASS=admin
+    volumes:
+      - ./config/smo:/config:ro
+      - smo-data:/data
+    networks:
+      - oran-net
+    restart: unless-stopped
+    depends_on:
+      - a1-mediator
+
+  # Redis (Key-Value Store for A1 Mediator and FL Coordinator)
+  redis:
+    image: redis:7-alpine
+    container_name: oran-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "oran123"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - oran-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "oran123", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL (Database for FL Coordinator)
+  postgres:
+    image: postgres:15-alpine
+    container_name: oran-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=oran_nearrt_ric
+      - POSTGRES_USER=oran
+      - POSTGRES_PASSWORD=oran123
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - oran-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oran -d oran_nearrt_ric"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus (Metrics Collection)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: oran-prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - oran-net
+    restart: unless-stopped
+    depends_on:
+      - main-dashboard
+      - xapp-dashboard
+
+  # Grafana (Metrics Visualization)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: oran-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/dashboard-files:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - oran-net
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # Jaeger (Distributed Tracing)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: oran-jaeger
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    volumes:
+      - jaeger-data:/tmp
+    networks:
+      - oran-net
+    restart: unless-stopped
+
+# Volumes for persistent data
+volumes:
+  dashboard-certs:
+    driver: local
+  fl-models:
+    driver: local
+  e2sim-logs:
+    driver: local
+  e2term-logs:
+    driver: local
+  ocu-logs:
+    driver: local
+  odu-logs:
+    driver: local
+  oru-logs:
+    driver: local
+  xapp-ra-data:
+    driver: local
+  xapp-tp-data:
+    driver: local
+  a1-logs:
+    driver: local
+  smo-data:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  jaeger-data:
+    driver: local
+
+# Networks
+networks:
+  oran-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1

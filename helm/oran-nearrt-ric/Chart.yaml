@@ -1,0 +1,47 @@
+apiVersion: v2
+name: oran-nearrt-ric
+description: O-RAN Near Real-Time RAN Intelligent Controller Platform
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://github.com/your-org/near-rt-ric
+sources:
+  - https://github.com/your-org/near-rt-ric
+keywords:
+  - oran
+  - nearrt-ric
+  - 5g
+  - ran
+  - kubernetes
+  - dashboard
+  - xapp
+  - federated-learning
+maintainers:
+  - name: O-RAN Platform Team
+    email: platform-team@example.com
+icon: https://www.o-ran.org/sites/default/files/O-RAN-ALLIANCE_Final_Logo.png
+
+annotations:
+  category: Infrastructure
+  licenses: Apache-2.0
+
+dependencies:
+  - name: prometheus
+    version: "25.8.0"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: monitoring.prometheus.enabled
+  
+  - name: grafana  
+    version: "7.0.8"
+    repository: https://grafana.github.io/helm-charts
+    condition: monitoring.grafana.enabled
+    
+  - name: redis
+    version: "18.4.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+    
+  - name: postgresql
+    version: "13.2.24"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled

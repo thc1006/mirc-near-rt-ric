@@ -1,0 +1,401 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: oran-nearrt-ric
+    app.kubernetes.io/component: oran
+    app.kubernetes.io/part-of: oran-nearrt-ric
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2-simulator-config
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: e2-simulator
+    app.kubernetes.io/component: e2-interface
+    app.kubernetes.io/part-of: oran-nearrt-ric
+data:
+  e2sim.conf: |
+    # E2 Simulator Configuration
+    # Based on O-RAN WG3 E2AP v03.00 specification
+    
+    [global]
+    # E2 Node identification
+    gnb_id = 001
+    plmn_id = 310410
+    cell_id = 1
+    
+    # E2 Interface configuration
+    e2_ip = 0.0.0.0
+    e2_port = 36421
+    e2_sctp_port = 36421
+    
+    # E2 Termination endpoint
+    e2t_ip = e2-termination
+    e2t_port = 38000
+    
+    [ran_functions]
+    # Supported RAN Functions
+    kpm_enabled = true
+    rc_enabled = true
+    ni_enabled = false
+    
+    [kpm]
+    # Key Performance Measurement (KPM) Service Model
+    # Based on O-RAN.WG3.E2SM-KPM-v03.00
+    reporting_period_ms = 1000
+    measurement_info_list = [
+      "DRB.UEThpDl",
+      "DRB.UEThpUl", 
+      "RRU.PrbTotDl",
+      "RRU.PrbTotUl",
+      "RRC.ConnEstabSucc",
+      "RRC.ConnEstabFail",
+      "QosFlow.PdcpPduVolumeDL",
+      "QosFlow.PdcpPduVolumeUL"
+    ]
+    
+    [rc]
+    # RAN Control (RC) Service Model  
+    # Based on O-RAN.WG3.E2SM-RC-v03.00
+    control_actions = [
+      "QoS_flow_mapping",
+      "Traffic_steering", 
+      "Dual_connectivity",
+      "Bearer_context_setup",
+      "Bearer_context_modification",
+      "Handover_control"
+    ]
+    
+    [simulation]
+    # Simulation parameters
+    num_ues = 100
+    cell_bandwidth_mhz = 100
+    frequency_band = 78  # 5G FR1 Band n78 (3.5 GHz)
+    
+    # Traffic patterns
+    traffic_model = "poisson"
+    packet_arrival_rate = 100  # packets/second
+    packet_size_bytes = 1500
+    
+    # Mobility simulation
+    mobility_enabled = true
+    handover_probability = 0.1
+    velocity_kmh = 30
+
+  logging.conf: |
+    [loggers]
+    keys=root,e2sim
+
+    [handlers]
+    keys=consoleHandler,fileHandler
+
+    [formatters]
+    keys=simpleFormatter
+
+    [logger_root]
+    level=INFO
+    handlers=consoleHandler
+
+    [logger_e2sim]
+    level=DEBUG
+    handlers=consoleHandler,fileHandler
+    qualname=e2sim
+    propagate=0
+
+    [handler_consoleHandler]
+    class=StreamHandler
+    level=DEBUG
+    formatter=simpleFormatter
+    args=(sys.stdout,)
+
+    [handler_fileHandler]
+    class=FileHandler
+    level=DEBUG
+    formatter=simpleFormatter
+    args=('/var/log/e2sim/e2sim.log',)
+
+    [formatter_simpleFormatter]
+    format=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2-simulator
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: e2-simulator
+    app.kubernetes.io/component: e2-interface
+    app.kubernetes.io/part-of: oran-nearrt-ric
+    app.kubernetes.io/version: "3.0.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: e2-simulator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: e2-simulator
+        app.kubernetes.io/component: e2-interface
+        app.kubernetes.io/part-of: oran-nearrt-ric
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      initContainers:
+      - name: wait-for-e2term
+        image: busybox:1.35
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for E2 Termination to be ready..."
+          until nc -z e2-termination 38000; do
+            echo "E2 Termination not ready, waiting..."
+            sleep 5
+          done
+          echo "E2 Termination is ready!"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      containers:
+      - name: e2-simulator
+        image: oransoftwarecommunity/ric-plt-e2sim:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: e2-sctp
+          containerPort: 36421
+          protocol: SCTP
+        - name: e2-tcp
+          containerPort: 36422
+          protocol: TCP
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: E2SIM_MODE
+          value: "DU"
+        - name: E2SIM_IP
+          value: "0.0.0.0"
+        - name: E2SIM_PORT
+          value: "36421"
+        - name: E2T_IP
+          value: "e2-termination"
+        - name: E2T_PORT
+          value: "38000"
+        - name: PLMN_ID
+          value: "310410"
+        - name: CELL_ID
+          value: "1"
+        - name: GNB_ID
+          value: "001"
+        - name: RAN_FUNC_LIST
+          value: "KPM,RC"
+        - name: LOG_LEVEL
+          value: "DEBUG"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        livenessProbe:
+          tcpSocket:
+            port: e2-tcp
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: e2-tcp
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1001
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+          readOnlyRootFilesystem: false
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: logs
+          mountPath: /var/log/e2sim
+      volumes:
+      - name: config
+        configMap:
+          name: e2-simulator-config
+      - name: logs
+        emptyDir: {}
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - key: "node-type"
+        operator: "Equal"
+        value: "oran-worker"
+        effect: "NoSchedule"
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: workload
+                operator: In
+                values:
+                - nearrt-ric
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: e2-simulator
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: e2-simulator
+    app.kubernetes.io/component: e2-interface
+    app.kubernetes.io/part-of: oran-nearrt-ric
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: e2-sctp
+    port: 36421
+    targetPort: e2-sctp
+    protocol: SCTP
+  - name: e2-tcp
+    port: 36422
+    targetPort: e2-tcp
+    protocol: TCP
+  - name: metrics
+    port: 8080
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: e2-simulator
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: e2-simulator-nodeport
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: e2-simulator
+    app.kubernetes.io/component: e2-interface
+    app.kubernetes.io/part-of: oran-nearrt-ric
+spec:
+  type: NodePort
+  ports:
+  - name: e2-sctp
+    port: 36421
+    targetPort: e2-sctp
+    nodePort: 30421
+    protocol: SCTP
+  - name: e2-tcp
+    port: 36422
+    targetPort: e2-tcp
+    nodePort: 30422
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: e2-simulator
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: e2-simulator
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: e2-simulator
+    app.kubernetes.io/component: e2-interface
+    app.kubernetes.io/part-of: oran-nearrt-ric
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: e2-simulator
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: e2-simulator-network-policy
+  namespace: oran-nearrt-ric
+  labels:
+    app.kubernetes.io/name: e2-simulator
+    app.kubernetes.io/component: e2-interface
+    app.kubernetes.io/part-of: oran-nearrt-ric
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: e2-simulator
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow traffic from E2 Termination
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: e2-termination
+    ports:
+    - protocol: SCTP
+      port: 36421
+    - protocol: TCP
+      port: 36422
+  # Allow metrics scraping from Prometheus
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow traffic to E2 Termination
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: e2-termination
+    ports:
+    - protocol: SCTP
+      port: 38000
+    - protocol: TCP
+      port: 38001
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

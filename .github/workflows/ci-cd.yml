@@ -1,0 +1,568 @@
+name: O-RAN Near-RT RIC CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, 'feature/**', 'release/**' ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run nightly builds at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  # Container registry configuration
+  REGISTRY: ghcr.io
+  REGISTRY_USERNAME: ${{ github.actor }}
+  REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+  
+  # Go configuration
+  GO_VERSION: '1.21'
+  GOLANGCI_LINT_VERSION: 'v1.54'
+  
+  # Node.js configuration
+  NODE_VERSION: '18'
+  
+  # Kubernetes configuration
+  KIND_VERSION: 'v0.20.0'
+  KUBECTL_VERSION: 'v1.29.0'
+  HELM_VERSION: 'v3.13.0'
+  
+  # O-RAN specific configuration
+  ORAN_NAMESPACE: 'oran-nearrt-ric'
+  E2_SIMULATOR_TIMEOUT: '300s'
+
+jobs:
+  # Security scanning and dependency check
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Check for secrets
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Code quality and linting
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: ['main-dashboard', 'xapp-dashboard']
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      if: matrix.component == 'main-dashboard'
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Setup Node.js
+      if: matrix.component == 'xapp-dashboard'
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: 'xAPP_dashboard-master/package-lock.json'
+
+    # Go linting and testing
+    - name: Go mod download
+      if: matrix.component == 'main-dashboard'
+      working-directory: dashboard-master/dashboard-master
+      run: go mod download
+
+    - name: Run golangci-lint
+      if: matrix.component == 'main-dashboard'
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: ${{ env.GOLANGCI_LINT_VERSION }}
+        working-directory: dashboard-master/dashboard-master
+        args: --timeout=5m --config=.golangci.yml
+
+    - name: Run Go tests
+      if: matrix.component == 'main-dashboard'
+      working-directory: dashboard-master/dashboard-master
+      run: |
+        go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+        go tool cover -html=coverage.out -o coverage.html
+
+    - name: Go security scan
+      if: matrix.component == 'main-dashboard'
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: '-no-fail -fmt sarif -out gosec-results.sarif ./...'
+        working-directory: dashboard-master/dashboard-master
+
+    # Node.js linting and testing
+    - name: Install Node.js dependencies
+      if: matrix.component == 'xapp-dashboard'
+      working-directory: xAPP_dashboard-master
+      run: npm ci
+
+    - name: Run ESLint
+      if: matrix.component == 'xapp-dashboard'
+      working-directory: xAPP_dashboard-master
+      run: npm run lint
+
+    - name: Run Angular tests
+      if: matrix.component == 'xapp-dashboard'
+      working-directory: xAPP_dashboard-master
+      run: npm run test:ci
+
+    - name: Run e2e tests
+      if: matrix.component == 'xapp-dashboard'
+      working-directory: xAPP_dashboard-master
+      run: npm run e2e:ci
+
+    # Upload coverage reports
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      if: always()
+      with:
+        files: ./dashboard-master/dashboard-master/coverage.out,./xAPP_dashboard-master/coverage/lcov.info
+        flags: ${{ matrix.component }}
+        name: ${{ matrix.component }}-coverage
+
+  # Build and test
+  build-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    needs: [security-scan, code-quality]
+    strategy:
+      matrix:
+        component: 
+        - name: 'main-dashboard'
+          path: 'dashboard-master/dashboard-master'
+          dockerfile: 'aio/Dockerfile'
+        - name: 'xapp-dashboard'
+          path: 'xAPP_dashboard-master'
+          dockerfile: 'Dockerfile'
+        - name: 'fl-coordinator'
+          path: 'dashboard-master/dashboard-master'
+          dockerfile: 'aio/Dockerfile.fl'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ env.REGISTRY_USERNAME }}
+        password: ${{ env.REGISTRY_PASSWORD }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.component.name }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD-HHmmss'}}
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ matrix.component.path }}
+        file: ${{ matrix.component.path }}/${{ matrix.component.dockerfile }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+        build-args: |
+          BUILDTIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+          REVISION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+
+  # Helm chart testing
+  helm-test:
+    name: Helm Chart Test
+    runs-on: ubuntu-latest
+    needs: [security-scan]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: ${{ env.HELM_VERSION }}
+
+    - name: Add Helm repositories
+      run: |
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm repo add grafana https://grafana.github.io/helm-charts
+        helm repo add bitnami https://charts.bitnami.com/bitnami
+        helm repo update
+
+    - name: Lint Helm chart
+      run: |
+        helm lint helm/oran-nearrt-ric/
+        helm template oran-nearrt-ric helm/oran-nearrt-ric/ --debug --dry-run
+
+    - name: Run chart-testing (lint)
+      uses: helm/chart-testing-action@v2.6.0
+      with:
+        command: lint
+        config: .github/ct.yaml
+
+    - name: Create KIND cluster for testing
+      uses: helm/kind-action@v1.8.0
+      with:
+        version: ${{ env.KIND_VERSION }}
+        config: kind-config.yaml
+        cluster_name: chart-testing
+
+    - name: Run chart-testing (install)
+      uses: helm/chart-testing-action@v2.6.0
+      with:
+        command: install
+        config: .github/ct.yaml
+
+  # End-to-end testing
+  e2e-test:
+    name: E2E Testing
+    runs-on: ubuntu-latest
+    needs: [build-test]
+    if: github.event_name != 'schedule'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: ${{ env.KUBECTL_VERSION }}
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: ${{ env.HELM_VERSION }}
+
+    - name: Create KIND cluster
+      uses: helm/kind-action@v1.8.0
+      with:
+        version: ${{ env.KIND_VERSION }}
+        config: kind-config.yaml
+        cluster_name: e2e-testing
+
+    - name: Load Docker images into KIND
+      run: |
+        # Load built images into KIND cluster
+        kind load docker-image ${{ env.REGISTRY }}/${{ github.repository }}/main-dashboard:${{ github.sha }} --name e2e-testing
+        kind load docker-image ${{ env.REGISTRY }}/${{ github.repository }}/xapp-dashboard:${{ github.sha }} --name e2e-testing
+        kind load docker-image ${{ env.REGISTRY }}/${{ github.repository }}/fl-coordinator:${{ github.sha }} --name e2e-testing
+
+    - name: Deploy O-RAN platform
+      timeout-minutes: 10
+      run: |
+        # Create namespaces
+        kubectl create namespace ${{ env.ORAN_NAMESPACE }}
+        kubectl create namespace kubernetes-dashboard
+        kubectl create namespace xapp-dashboard
+        kubectl create namespace monitoring
+        
+        # Deploy components with test images
+        helm install oran-nearrt-ric helm/oran-nearrt-ric/ \
+          --namespace ${{ env.ORAN_NAMESPACE }} \
+          --set mainDashboard.image.tag=${{ github.sha }} \
+          --set xappDashboard.image.tag=${{ github.sha }} \
+          --set federatedLearning.image.tag=${{ github.sha }} \
+          --set global.imageRegistry=${{ env.REGISTRY }}/${{ github.repository }} \
+          --wait --timeout=10m
+
+    - name: Wait for deployments
+      timeout-minutes: 5
+      run: |
+        kubectl wait --for=condition=available deployment/main-dashboard \
+          --namespace=${{ env.ORAN_NAMESPACE }} --timeout=300s
+        kubectl wait --for=condition=available deployment/xapp-dashboard \
+          --namespace=${{ env.ORAN_NAMESPACE }} --timeout=300s
+        kubectl wait --for=condition=available deployment/e2-simulator \
+          --namespace=${{ env.ORAN_NAMESPACE }} --timeout=${{ env.E2_SIMULATOR_TIMEOUT }}
+
+    - name: Run E2E tests
+      timeout-minutes: 15
+      run: |
+        # Test E2 Interface connectivity
+        kubectl exec -n ${{ env.ORAN_NAMESPACE }} deployment/e2-simulator -- \
+          nc -z e2-termination 38000
+          
+        # Test A1 Interface connectivity  
+        kubectl exec -n ${{ env.ORAN_NAMESPACE }} deployment/a1-mediator -- \
+          curl -f http://localhost:10020/a1-p/healthcheck
+          
+        # Test xApp registration with FL Coordinator
+        kubectl exec -n ${{ env.ORAN_NAMESPACE }} deployment/resource-allocation-xapp -- \
+          curl -f http://fl-coordinator:8080/fl/clients
+          
+        # Test dashboard accessibility
+        kubectl port-forward -n kubernetes-dashboard service/kubernetes-dashboard 8080:443 &
+        sleep 10
+        curl -k -f https://localhost:8080/api/v1/login/status
+        
+        # Test metrics collection
+        kubectl port-forward -n monitoring service/prometheus-server 9090:80 &
+        sleep 10
+        curl -f http://localhost:9090/-/healthy
+
+    - name: Collect logs on failure
+      if: failure()
+      run: |
+        kubectl get all -A
+        kubectl describe pods -n ${{ env.ORAN_NAMESPACE }}
+        kubectl logs -n ${{ env.ORAN_NAMESPACE }} -l app.kubernetes.io/component=e2-interface --tail=100
+        kubectl logs -n ${{ env.ORAN_NAMESPACE }} -l app.kubernetes.io/component=xapp --tail=100
+
+  # Performance testing
+  performance-test:
+    name: Performance Test
+    runs-on: ubuntu-latest
+    needs: [e2e-test]
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[perf-test]')
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: ${{ env.KUBECTL_VERSION }}
+
+    - name: Create KIND cluster for performance testing
+      uses: helm/kind-action@v1.8.0
+      with:
+        version: ${{ env.KIND_VERSION }}
+        config: kind-config.yaml
+        cluster_name: perf-testing
+
+    - name: Deploy O-RAN platform for performance testing
+      run: |
+        helm install oran-nearrt-ric helm/oran-nearrt-ric/ \
+          --namespace ${{ env.ORAN_NAMESPACE }} \
+          --create-namespace \
+          --set mainDashboard.replicaCount=3 \
+          --set xappDashboard.replicaCount=3 \
+          --set xapps.resourceAllocation.replicaCount=2 \
+          --set e2Simulator.replicaCount=3 \
+          --wait --timeout=15m
+
+    - name: Run load tests
+      run: |
+        # Install k6 for load testing
+        sudo gpg -k
+        sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+        
+        # Run load tests against the platform
+        kubectl port-forward -n ${{ env.ORAN_NAMESPACE }} service/main-dashboard 8080:8080 &
+        kubectl port-forward -n ${{ env.ORAN_NAMESPACE }} service/fl-coordinator 8090:8080 &
+        sleep 10
+        
+        # Create k6 test script
+        cat > load-test.js << 'EOF'
+        import http from 'k6/http';
+        import { check } from 'k6';
+        
+        export let options = {
+          stages: [
+            { duration: '2m', target: 10 },
+            { duration: '5m', target: 50 },
+            { duration: '2m', target: 100 },
+            { duration: '5m', target: 100 },
+            { duration: '2m', target: 0 },
+          ],
+          thresholds: {
+            http_req_duration: ['p(95)<500'],
+            http_req_failed: ['rate<0.1'],
+          },
+        };
+        
+        export default function () {
+          let response = http.get('http://localhost:8080/api/v1/login/status');
+          check(response, {
+            'status is 200': (r) => r.status === 200,
+            'response time < 500ms': (r) => r.timings.duration < 500,
+          });
+          
+          response = http.get('http://localhost:8090/fl/clients');
+          check(response, {
+            'FL coordinator healthy': (r) => r.status === 200,
+          });
+        }
+        EOF
+        
+        k6 run load-test.js
+
+    - name: Generate performance report
+      if: always()
+      run: |
+        kubectl top nodes
+        kubectl top pods -n ${{ env.ORAN_NAMESPACE }}
+        kubectl get hpa -n ${{ env.ORAN_NAMESPACE }}
+
+  # Deployment to staging/production
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [e2e-test, helm-test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: 
+      name: staging
+      url: https://oran-staging.example.com
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: ${{ env.KUBECTL_VERSION }}
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: ${{ env.HELM_VERSION }}
+
+    - name: Configure kubectl for staging
+      run: |
+        # Configure kubectl context for staging cluster
+        # This would typically involve setting up kubeconfig with staging cluster credentials
+        echo "Configuring kubectl for staging deployment..."
+        # kubectl config set-cluster staging --server=${{ secrets.STAGING_CLUSTER_SERVER }}
+        # kubectl config set-credentials staging-user --token=${{ secrets.STAGING_CLUSTER_TOKEN }}
+        # kubectl config set-context staging --cluster=staging --user=staging-user
+        # kubectl config use-context staging
+
+    - name: Deploy to staging
+      run: |
+        helm upgrade --install oran-nearrt-ric helm/oran-nearrt-ric/ \
+          --namespace ${{ env.ORAN_NAMESPACE }} \
+          --create-namespace \
+          --set global.imageRegistry=${{ env.REGISTRY }}/${{ github.repository }} \
+          --set mainDashboard.image.tag=${{ github.sha }} \
+          --set xappDashboard.image.tag=${{ github.sha }} \
+          --set federatedLearning.image.tag=${{ github.sha }} \
+          --set mainDashboard.ingress.enabled=true \
+          --set mainDashboard.ingress.hosts[0].host=oran-staging.example.com \
+          --set mainDashboard.ingress.hosts[0].paths[0].path=/ \
+          --set mainDashboard.ingress.hosts[0].paths[0].pathType=Prefix \
+          --wait --timeout=10m
+
+    - name: Verify deployment
+      run: |
+        kubectl rollout status deployment/main-dashboard -n ${{ env.ORAN_NAMESPACE }}
+        kubectl rollout status deployment/xapp-dashboard -n ${{ env.ORAN_NAMESPACE }}
+        kubectl get ingress -n ${{ env.ORAN_NAMESPACE }}
+
+    - name: Run smoke tests
+      run: |
+        # Run basic smoke tests against staging environment
+        echo "Running smoke tests against staging..."
+        # curl -f https://oran-staging.example.com/health
+        # curl -f https://oran-staging.example.com/api/v1/login/status
+
+  # Release creation
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Generate changelog from git commits
+        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+        git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: O-RAN Near-RT RIC ${{ github.ref_name }}
+        body: |
+          ## What's Changed
+          ${{ steps.changelog.outputs.CHANGELOG }}
+          
+          ## Docker Images
+          - Main Dashboard: `${{ env.REGISTRY }}/${{ github.repository }}/main-dashboard:${{ github.ref_name }}`
+          - xApp Dashboard: `${{ env.REGISTRY }}/${{ github.repository }}/xapp-dashboard:${{ github.ref_name }}`
+          - FL Coordinator: `${{ env.REGISTRY }}/${{ github.repository }}/fl-coordinator:${{ github.ref_name }}`
+          
+          ## Helm Chart
+          ```bash
+          helm install oran-nearrt-ric oci://${{ env.REGISTRY }}/${{ github.repository }}/helm/oran-nearrt-ric --version ${{ github.ref_name }}
+          ```
+          
+          ## Quick Start
+          ```bash
+          git clone https://github.com/${{ github.repository }}.git
+          cd near-rt-ric
+          git checkout ${{ github.ref_name }}
+          ./scripts/setup.sh
+          ```
+        draft: false
+        prerelease: contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha')
+
+  # Cleanup
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [e2e-test, performance-test]
+    if: always()
+    steps:
+    - name: Delete old container images
+      run: |
+        # Keep only the latest 10 versions of each image
+        echo "Cleaning up old container images..."
+        # This would typically involve calling the GitHub Packages API
+        # to delete old image versions
