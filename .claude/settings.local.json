@@ -67,7 +67,10 @@
       "Bash(kubectl logs:*)",
       "Bash(kubectl apply:*)",
       "Bash(kubectl create configmap:*)",
-      "Bash(kubectl:*)"
+      "Bash(kubectl:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(./analyze_stale_files.sh:*)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }
