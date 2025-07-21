@@ -194,8 +194,8 @@ services:
       - DU_IP=o-du-simulator
       - DU_PORT=38472
       - NETCONF_PORT=830
-      - NETCONF_USER=admin
-      - NETCONF_PASS=admin
+      - NETCONF_USER=${NETCONF_USER:-oranadmin}
+      - NETCONF_PASS=${NETCONF_PASS:-SecureOran2024!}
     volumes:
       - ./config/o-ru:/config:ro
       - oru-logs:/var/log/o-ru
@@ -297,8 +297,8 @@ services:
       - SMO_PORT=8080
       - A1_ENDPOINT=a1-mediator:10020
       - O1_ENDPOINT=o-ru-simulator:830
-      - NETCONF_USER=admin
-      - NETCONF_PASS=admin
+      - NETCONF_USER=${NETCONF_USER:-oranadmin}
+      - NETCONF_PASS=${NETCONF_PASS:-SecureOran2024!}
     volumes:
       - ./config/smo:/config:ro
       - smo-data:/data

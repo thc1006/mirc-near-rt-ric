@@ -62,16 +62,23 @@ rbac:
 
 podAnnotations: {}
 
-podSecurityContext: {}
-  # fsGroup: 2000
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
 
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
 
 service:
   type: ClusterIP
@@ -112,17 +119,24 @@ oran:
 redis:
   enabled: true
   auth:
-    enabled: false
+    enabled: true
+    password: "{{ .Values.security.redisPassword | default \"SecureOran2024!\" }}"
   architecture: standalone
+  tls:
+    enabled: true
+    authClients: true
 
 # PostgreSQL configuration
 postgresql:
   enabled: true
   auth:
-    postgresPassword: "fl_password"
+    postgresPassword: "{{ .Values.security.postgresPassword | default \"SecureOran2024!\" }}"
     username: "fl_user"
-    password: "fl_password"
+    password: "{{ .Values.security.postgresPassword | default \"SecureOran2024!\" }}"
     database: "fl_coordinator"
+  tls:
+    enabled: true
+    certificatesSecret: "postgres-tls"
 
 # Monitoring configuration  
 monitoring:
@@ -131,7 +145,13 @@ monitoring:
   grafana:
     enabled: true
 
-resources: {}
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 100m
+    memory: 256Mi
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
   # resources, such as Minikube. If you do want to specify resources, uncomment the
@@ -155,3 +175,76 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# Security Configuration
+security:
+  # TLS Configuration
+  tls:
+    enabled: true
+    minVersion: "1.3"
+    cipherSuites: []
+  
+  # Authentication & Authorization
+  authentication:
+    enabled: true
+    type: "jwt" # jwt, oauth2, cert
+    jwtExpiry: "24h"
+    sessionTimeout: "30m"
+  
+  authorization:
+    enabled: true
+    rbac:
+      enabled: true
+    
+  # Network Policies
+  networkPolicy:
+    enabled: true
+    ingress:
+      - from:
+        - namespaceSelector:
+            matchLabels:
+              name: oran-nearrt-ric
+        ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: SCTP
+          port: 36421
+    egress:
+      - {}
+  
+  # Pod Security Policy
+  podSecurityPolicy:
+    enabled: true
+    name: "oran-nearrt-ric-psp"
+    
+  # Service Mesh (Istio)
+  serviceMesh:
+    enabled: false
+    mtls: "STRICT"
+    
+  # Secrets Management
+  secrets:
+    # External secret management (e.g., Vault, AWS Secrets Manager)
+    external:
+      enabled: false
+      provider: "vault" # vault, aws, azure, gcp
+      
+  # Passwords and Keys (use external secrets in production)
+  redisPassword: "SecureOran2024!"
+  postgresPassword: "SecureOran2024!"
+  grafanaAdminPassword: "SecureOran2024!"
+  
+  # Audit Logging
+  audit:
+    enabled: true
+    level: "RequestResponse"
+    
+  # Input Validation
+  validation:
+    enabled: true
+    maxRequestSize: "10Mi"
+    
+  # Rate Limiting
+  rateLimiting:
+    enabled: true
+    requestsPerMinute: 1000

@@ -70,7 +70,8 @@
       "Bash(kubectl:*)",
       "Bash(git ls-tree:*)",
       "Bash(./analyze_stale_files.sh:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(du:*)"
     ],
     "deny": []
   }

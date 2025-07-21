@@ -1,0 +1,50 @@
+# Multi-stage build for O-RAN Near-RT RIC
+FROM golang:1.21-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the RIC binary
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -installsuffix cgo \
+    -o bin/ric \
+    ./cmd/ric
+
+# Final stage - minimal image
+FROM scratch
+
+# Copy timezone data
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+# Copy CA certificates
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy the binary
+COPY --from=builder /app/bin/ric /bin/ric
+
+# Create non-root user
+USER 1000:1000
+
+# Expose ports
+EXPOSE 8080 36421
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD ["/bin/ric", "--health-check"]
+
+# Default command
+ENTRYPOINT ["/bin/ric"]
+CMD ["--listen-addr=0.0.0.0", "--listen-port=36421", "--log-level=info"]

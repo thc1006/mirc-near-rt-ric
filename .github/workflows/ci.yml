@@ -1,0 +1,381 @@
+name: O-RAN Near-RT RIC CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  GO_VERSION: '1.21'
+  NODE_VERSION: '18'
+
+jobs:
+  # Security Scanning
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run OSV Scanner
+      uses: google/osv-scanner-action@v1
+      with:
+        scan-args: |-
+          --recursive
+          --skip-git
+          ./
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Go Backend Testing and Linting
+  go-backend:
+    name: Go Backend CI
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run go mod tidy
+      run: go mod tidy
+
+    - name: Check for changes after go mod tidy
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "go.mod or go.sum are not up to date"
+          git diff
+          exit 1
+        fi
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        args: --timeout=5m
+
+    - name: Run Go tests
+      run: go test -v -race -coverprofile=coverage.out ./...
+
+    - name: Generate coverage report
+      run: go tool cover -html=coverage.out -o coverage.html
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: backend
+        name: go-coverage
+
+    - name: Build Go binaries
+      run: |
+        go build -o bin/ric ./cmd/ric
+        go build -o bin/e2-simulator ./cmd/e2-simulator
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: go-binaries
+        path: bin/
+
+  # Angular Frontend Testing
+  frontend-tests:
+    name: Frontend CI
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        frontend: [xAPP_dashboard-master, frontend-dashboard]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: ${{ matrix.frontend }}/package-lock.json
+
+    - name: Install dependencies
+      working-directory: ./${{ matrix.frontend }}
+      run: npm ci
+
+    - name: Run linting
+      working-directory: ./${{ matrix.frontend }}
+      run: npm run lint
+
+    - name: Run unit tests
+      working-directory: ./${{ matrix.frontend }}
+      run: npm run test:ci
+
+    - name: Run e2e tests
+      working-directory: ./${{ matrix.frontend }}
+      run: npm run e2e:ci
+
+    - name: Build frontend
+      working-directory: ./${{ matrix.frontend }}
+      run: npm run build:prod
+
+    - name: Upload test coverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./${{ matrix.frontend }}/coverage/lcov.info
+        flags: frontend-${{ matrix.frontend }}
+        name: frontend-coverage-${{ matrix.frontend }}
+
+  # Docker Image Build and Security Scan
+  docker-build:
+    name: Docker Build & Security Scan
+    runs-on: ubuntu-latest
+    needs: [go-backend, frontend-tests]
+    strategy:
+      matrix:
+        component: [ric, xapp-dashboard, fl-coordinator]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.component }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha
+
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/Dockerfile.${{ matrix.component }}
+        platforms: linux/amd64,linux/arm64
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Run Trivy vulnerability scanner on image
+      if: github.event_name != 'pull_request'
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.component }}:${{ github.sha }}
+        format: 'sarif'
+        output: 'trivy-image-results.sarif'
+
+    - name: Upload Trivy image scan results
+      if: github.event_name != 'pull_request'
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-image-results.sarif'
+
+  # Helm Chart Testing
+  helm-test:
+    name: Helm Chart Testing
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install chart-testing
+      uses: helm/chart-testing-action@v2
+
+    - name: Run chart-testing (list-changed)
+      id: list-changed
+      run: |
+        changed=$(ct list-changed --target-branch ${{ github.event.repository.default_branch }})
+        if [[ -n "$changed" ]]; then
+          echo "changed=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Run chart-testing (lint)
+      if: steps.list-changed.outputs.changed == 'true'
+      run: ct lint --target-branch ${{ github.event.repository.default_branch }}
+
+    - name: Create kind cluster
+      if: steps.list-changed.outputs.changed == 'true'
+      uses: helm/kind-action@v1
+
+    - name: Run chart-testing (install)
+      if: steps.list-changed.outputs.changed == 'true'
+      run: ct install --target-branch ${{ github.event.repository.default_branch }}
+
+  # Integration Tests
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [go-backend]
+    services:
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Download Go artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: go-binaries
+        path: bin/
+
+    - name: Make binaries executable
+      run: chmod +x bin/*
+
+    - name: Run integration tests
+      env:
+        REDIS_URL: redis://localhost:6379
+        POSTGRES_URL: postgres://postgres:test_password@localhost:5432/test_db
+      run: go test -v -tags=integration ./internal/tests/
+
+  # Deployment (only on main branch and tags)
+  deploy:
+    name: Deploy to Environment
+    runs-on: ubuntu-latest
+    needs: [security-scan, docker-build, helm-test, integration-tests]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    environment: 
+      name: ${{ github.ref == 'refs/heads/main' && 'staging' || 'production' }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+
+    - name: Configure Kubernetes context
+      run: |
+        echo "Configuring Kubernetes context for ${{ github.ref == 'refs/heads/main' && 'staging' || 'production' }}"
+        # Add your Kubernetes cluster configuration here
+        # kubectl config use-context $CONTEXT_NAME
+
+    - name: Deploy with Helm
+      run: |
+        helm upgrade --install oran-nearrt-ric ./helm/oran-nearrt-ric \
+          --namespace oran-nearrt-ric \
+          --create-namespace \
+          --set image.tag=${{ github.sha }} \
+          --set security.tls.enabled=true \
+          --set security.authentication.enabled=true \
+          --wait
+
+    - name: Run deployment verification tests
+      run: |
+        # Add deployment verification commands here
+        kubectl get pods -n oran-nearrt-ric
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=oran-nearrt-ric -n oran-nearrt-ric --timeout=300s
+
+  # Performance Testing (only on main branch)
+  performance-test:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run performance tests
+      run: |
+        echo "Running performance tests..."
+        # Add your performance testing commands here
+        # e.g., using k6, artillery, or custom Go benchmarks
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-results
+        path: performance-results/
