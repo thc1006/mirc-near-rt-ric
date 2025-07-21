@@ -1,8 +1,6 @@
 package xapp
 
 import (
-	"context"
-	"encoding/json"
 	"time"
 )
 

@@ -2,6 +2,7 @@ package a1
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -317,8 +318,8 @@ func TestA1Interface_ValidationErrors(t *testing.T) {
 }
 
 // Helper function to simulate mux variables in context
-func contextWithVars(ctx interface{}, vars map[string]string) interface{} {
+func contextWithVars(ctx context.Context, vars map[string]string) context.Context {
 	// In a real test, we would use gorilla/mux's testing utilities
-	// For now, we'll mock this functionality
+	// For now, we'll mock this functionality by returning the same context
 	return ctx
 }

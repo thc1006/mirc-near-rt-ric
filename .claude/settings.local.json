@@ -71,7 +71,9 @@
       "Bash(git ls-tree:*)",
       "Bash(./analyze_stale_files.sh:*)",
       "Bash(rg:*)",
-      "Bash(du:*)"
+      "Bash(du:*)",
+      "Bash(true)",
+      "Bash(./scripts/validate-ci.sh:*)"
     ],
     "deny": []
   }
