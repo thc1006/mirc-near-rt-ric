@@ -22,6 +22,11 @@ jobs:
   build-and-test:
     name: Build & Test All Components
     runs-on: ubuntu-latest
+    # Required permissions for SARIF upload and repository access
+    permissions:
+      contents: read          # Required to checkout repository
+      security-events: write  # Required to upload SARIF files for code scanning
+      actions: read          # Required to read workflow run information
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +40,7 @@ jobs:
 
       # Security scanning for all components
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.15.0
         with:
           scan-type: 'fs'
           ignore-unfixed: true
@@ -43,10 +48,12 @@ jobs:
           output: 'trivy-results-${{ matrix.component }}.sarif'
 
       - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v3.22.12
         if: always()
         with:
           sarif_file: 'trivy-results-${{ matrix.component }}.sarif'
+          # Explicitly use GITHUB_TOKEN with proper scoping
+          token: ${{ github.token }}
 
       # Backend-specific steps
       - name: Set up Go (Backend)
@@ -277,6 +284,12 @@ jobs:
   docker-build:
     name: Docker Build & Push
     runs-on: ubuntu-latest
+    # Required permissions for container registry and security scanning
+    permissions:
+      contents: read          # Required to checkout repository
+      packages: write         # Required to push to GitHub Container Registry
+      security-events: write  # Required to upload SARIF files for code scanning
+      actions: read          # Required to read workflow run information
     needs: [build-and-test, helm-validation]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
@@ -335,17 +348,19 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Run Trivy vulnerability scanner on image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.15.0
         with:
           image-ref: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/${{ matrix.component }}:${{ github.sha }}
           format: 'sarif'
           output: 'trivy-image-results-${{ matrix.component }}.sarif'
 
       - name: Upload Trivy image scan results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v3.22.12
         if: always()
         with:
           sarif_file: 'trivy-image-results-${{ matrix.component }}.sarif'
+          # Explicitly use GITHUB_TOKEN with proper scoping
+          token: ${{ github.token }}
 
   # Job 4: Integration tests
   integration-tests:

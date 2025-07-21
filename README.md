@@ -1,7 +1,7 @@
 # O-RAN Near Real-Time RAN Intelligent Controller (Near-RT RIC)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Build Status](https://github.com/hctsai1006/near-rt-ric/workflows/CI%2FCD/badge.svg)](https://github.com/hctsai1006/near-rt-ric/actions)
+[![Build Status](https://github.com/hctsai1006/near-rt-ric/actions/workflows/ci-integrated.yml/badge.svg)](https://github.com/hctsai1006/near-rt-ric/actions)
 [![O-RAN Compliance](https://img.shields.io/badge/O--RAN-Release%203.0%20Compliant-green.svg)](https://www.o-ran.org/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.21%2B-blue.svg)](https://kubernetes.io/)
 [![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8.svg)](https://golang.org/)
