@@ -1,0 +1,472 @@
+# O-RAN Observability Stack Configuration
+global:
+  storageClass: "standard"
+  # Resource optimization for development/testing
+  resources:
+    small:
+      limits:
+        cpu: 200m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    medium:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    large:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+
+# Grafana Configuration
+grafana:
+  enabled: true
+  adminPassword: "o-ran-admin"
+  persistence:
+    enabled: true
+    size: 10Gi
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      nginx.ingress.kubernetes.io/rewrite-target: /
+    hosts:
+      - grafana.o-ran.local
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-server:80
+          isDefault: true
+        - name: Loki
+          type: loki
+          url: http://loki:3100
+        - name: Jaeger
+          type: jaeger
+          url: http://jaeger-query:16686
+        - name: Elasticsearch
+          type: elasticsearch
+          url: http://elasticsearch-master:9200
+          database: "o-ran-logs"
+          timeField: "@timestamp"
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'o-ran-dashboards'
+          orgId: 1
+          folder: 'O-RAN'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/o-ran
+        - name: 'observability-dashboards'
+          orgId: 1
+          folder: 'Observability'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/observability
+  dashboards:
+    o-ran:
+      near-rt-ric-overview:
+        gnetId: 15757
+        revision: 1
+        datasource: Prometheus
+      e2-interface-monitoring:
+        gnetId: 15758
+        revision: 1
+        datasource: Prometheus
+      xapp-performance:
+        gnetId: 15759
+        revision: 1
+        datasource: Prometheus
+      smo-operations:
+        gnetId: 15760
+        revision: 1
+        datasource: Prometheus
+    observability:
+      kubernetes-cluster:
+        gnetId: 7249
+        revision: 1
+        datasource: Prometheus
+      kafka-cluster:
+        gnetId: 721
+        revision: 1
+        datasource: Prometheus
+      elasticsearch-cluster:
+        gnetId: 2322
+        revision: 1
+        datasource: Prometheus
+  plugins:
+    - grafana-piechart-panel
+    - grafana-worldmap-panel
+    - grafana-clock-panel
+    - grafana-simple-json-datasource
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+# Prometheus Configuration (Enhanced for O-RAN)
+prometheus:
+  enabled: true
+  server:
+    persistentVolume:
+      enabled: true
+      size: 20Gi
+    retention: "30d"
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    ingress:
+      enabled: true
+      annotations:
+        kubernetes.io/ingress.class: nginx
+      hosts:
+        - prometheus.o-ran.local
+  serverFiles:
+    prometheus.yml:
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+      rule_files:
+        - "/etc/prometheus/rules/*.yml"
+      scrape_configs:
+        # Kubernetes API Server
+        - job_name: 'kubernetes-apiservers'
+          kubernetes_sd_configs:
+            - role: endpoints
+          scheme: https
+          tls_config:
+            ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+              action: keep
+              regex: default;kubernetes;https
+        # O-RAN Near-RT RIC Components
+        - job_name: 'oran-nearrt-ric'
+          kubernetes_sd_configs:
+            - role: pod
+              namespaces:
+                names:
+                  - oran-nearrt-ric
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+              action: keep
+              regex: true
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+              action: replace
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $1:$2
+              target_label: __address__
+        # E2 Interface Metrics
+        - job_name: 'e2-interface'
+          static_configs:
+            - targets: ['e2-simulator:8080', 'e2-term:8080']
+          metrics_path: '/metrics'
+          scrape_interval: 10s
+        # xApp Metrics
+        - job_name: 'xapps'
+          kubernetes_sd_configs:
+            - role: service
+              namespaces:
+                names:
+                  - oran-nearrt-ric
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_component]
+              action: keep
+              regex: xapp
+        # SMO Components
+        - job_name: 'smo-onap'
+          kubernetes_sd_configs:
+            - role: service
+              namespaces:
+                names:
+                  - onap
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+              action: keep
+              regex: true
+        # Kafka Metrics
+        - job_name: 'kafka'
+          static_configs:
+            - targets: ['kafka:9308']
+        # Elasticsearch Metrics
+        - job_name: 'elasticsearch'
+          static_configs:
+            - targets: ['elasticsearch-master:9200']
+          metrics_path: '/_prometheus/metrics'
+  alertmanager:
+    enabled: true
+    persistentVolume:
+      enabled: true
+      size: 2Gi
+
+# Loki for Log Aggregation
+loki:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 10Gi
+  config:
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+    ingester:
+      lifecycler:
+        address: 127.0.0.1
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /loki/boltdb-shipper-active
+        cache_location: /loki/boltdb-shipper-cache
+        shared_store: filesystem
+      filesystem:
+        directory: /loki/chunks
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+# Promtail for Log Collection
+promtail:
+  enabled: true
+  config:
+    serverPort: 3101
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+    scrapeConfigs:
+      # O-RAN Components Logs
+      - job_name: o-ran-components
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - oran-nearrt-ric
+                - onap
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: __host__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - action: replace
+            replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+            target_label: __path__
+        pipeline_stages:
+          - cri: {}
+          - regex:
+              expression: '^(?P<timestamp>\S+) (?P<level>\S+) (?P<component>\S+) (?P<message>.*)'
+          - labels:
+              level:
+              component:
+          - timestamp:
+              source: timestamp
+              format: RFC3339
+
+# Elasticsearch for Advanced Log Analytics
+elasticsearch:
+  enabled: true
+  replicas: 1
+  minimumMasterNodes: 1
+  esMajorVersion: ""
+  clusterName: "o-ran-logs"
+  nodeGroup: "master"
+  roles:
+    master: "true"
+    ingest: "true"
+    data: "true"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+  volumeClaimTemplate:
+    accessModes: ["ReadWriteOnce"]
+    storageClassName: "standard"
+    resources:
+      requests:
+        storage: 30Gi
+  esConfig:
+    elasticsearch.yml: |
+      cluster.name: "o-ran-logs"
+      network.host: "0.0.0.0"
+      bootstrap.memory_lock: false
+      discovery.zen.ping.unicast.hosts: "elasticsearch-master-headless"
+      discovery.zen.minimum_master_nodes: 1
+      xpack.security.enabled: false
+      xpack.monitoring.enabled: true
+
+# Kibana for Elasticsearch Visualization
+kibana:
+  enabled: true
+  elasticsearchHosts: "http://elasticsearch-master:9200"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    hosts:
+      - host: kibana.o-ran.local
+        paths:
+          - path: /
+
+# Kafka for Real-time Data Streaming
+kafka:
+  enabled: true
+  replicaCount: 1
+  persistence:
+    enabled: true
+    size: 8Gi
+  zookeeper:
+    enabled: true
+    replicaCount: 1
+    persistence:
+      enabled: true
+      size: 8Gi
+  metrics:
+    kafka:
+      enabled: true
+    jmx:
+      enabled: true
+  externalAccess:
+    enabled: false
+  listeners:
+    client:
+      protocol: PLAINTEXT
+    controller:
+      protocol: PLAINTEXT
+    interbroker:
+      protocol: PLAINTEXT
+    external:
+      protocol: PLAINTEXT
+  controller:
+    replicaCount: 1
+  kraft:
+    enabled: true
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+# Kafka Connect for Data Integration
+kafkaConnect:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: confluentinc/cp-kafka-connect
+    tag: "7.4.0"
+  config:
+    bootstrap.servers: "kafka:9092"
+    group.id: "o-ran-connect-cluster"
+    key.converter: "org.apache.kafka.connect.json.JsonConverter"
+    value.converter: "org.apache.kafka.connect.json.JsonConverter"
+    config.storage.topic: "o-ran-connect-configs"
+    offset.storage.topic: "o-ran-connect-offsets"
+    status.storage.topic: "o-ran-connect-status"
+  connectors:
+    - name: "elasticsearch-sink"
+      config:
+        connector.class: "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector"
+        topics: "o-ran-metrics,o-ran-alarms,o-ran-logs"
+        connection.url: "http://elasticsearch-master:9200"
+        type.name: "_doc"
+        key.ignore: "true"
+    - name: "prometheus-source"
+      config:
+        connector.class: "com.github.castorm.kafka.connect.http.HttpSourceConnector"
+        kafka.topic: "o-ran-metrics"
+        http.request.url: "http://prometheus-server/api/v1/query_range"
+
+# Jaeger for Distributed Tracing
+jaeger:
+  enabled: true
+  storage:
+    type: memory
+  agent:
+    enabled: false
+  collector:
+    enabled: true
+    resources:
+      limits:
+        cpu: 200m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  query:
+    enabled: true
+    ingress:
+      enabled: true
+      annotations:
+        kubernetes.io/ingress.class: nginx
+      hosts:
+        - jaeger.o-ran.local
+    resources:
+      limits:
+        cpu: 200m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi

@@ -1,0 +1,61 @@
+apiVersion: v2
+name: smo-onap
+description: Service Management & Orchestration (SMO) based on ONAP Frankfurt
+type: application
+version: 1.0.0
+appVersion: "frankfurt"
+keywords:
+  - onap
+  - smo
+  - nfv-mano
+  - orchestration
+  - o-ran
+sources:
+  - https://github.com/onap/oom
+  - https://github.com/o-ran-sc/smo-o2
+maintainers:
+  - name: O-RAN Software Community
+    url: https://wiki.o-ran-sc.org
+dependencies:
+  # Core ONAP Components (Reduced Footprint)
+  - name: aai
+    version: "13.0.0"
+    repository: "https://nexus3.onap.org/repository/onap-helm-release/"
+    condition: aai.enabled
+  - name: so
+    version: "11.0.0" 
+    repository: "https://nexus3.onap.org/repository/onap-helm-release/"
+    condition: so.enabled
+  - name: sdnc
+    version: "13.0.0"
+    repository: "https://nexus3.onap.org/repository/onap-helm-release/"
+    condition: sdnc.enabled
+  - name: policy
+    version: "13.0.0"
+    repository: "https://nexus3.onap.org/repository/onap-helm-release/"
+    condition: policy.enabled
+  - name: dmaap
+    version: "12.0.0"
+    repository: "https://nexus3.onap.org/repository/onap-helm-release/"
+    condition: dmaap.enabled
+  # O-RAN Specific Extensions
+  - name: ric-plt
+    version: "3.2.0"
+    repository: "https://gerrit.o-ran-sc.org/r/ric-plt/ric-dep"
+    condition: ricPlatform.enabled
+  - name: nonrtric
+    version: "2.4.0"
+    repository: "https://gerrit.o-ran-sc.org/r/nonrtric"
+    condition: nonRtRic.enabled
+annotations:
+  category: "Network Management"
+  licenses: "Apache-2.0"
+  images: |
+    - name: aai-common
+      image: nexus3.onap.org:10001/onap/aai-common:1.12.3
+    - name: so-base
+      image: nexus3.onap.org:10001/onap/so/base-image:1.0.0
+    - name: sdnc-image
+      image: nexus3.onap.org:10001/onap/sdnc-image:2.4.5
+    - name: policy-api
+      image: nexus3.onap.org:10001/onap/policy-api:2.8.4
