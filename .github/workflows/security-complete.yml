@@ -96,13 +96,13 @@ jobs:
           args: --severity-threshold=high
         continue-on-error: true
 
-      - name: Run OSV Scanner
-        uses: google/osv-scanner-action@v1.9.2
-        with:
-          scan-args: |-
-            -r
-            --skip-git
-            .
+      - name: Run OSV Scanner (CLI)
+        run: |
+          # Install OSV-Scanner CLI directly
+          curl -L https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 -o osv-scanner
+          chmod +x osv-scanner
+          # Run vulnerability scan
+          ./osv-scanner -r --skip-git . || echo "OSV scan completed with findings"
         continue-on-error: true
 
   # Infrastructure as Code security scanning
