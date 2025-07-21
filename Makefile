@@ -24,6 +24,7 @@ FL_COORDINATOR_IMAGE := $(REGISTRY)/$(IMAGE_NAMESPACE)/fl-coordinator
 HELM_CMD := helm
 HELM_CHART_DIR := ./helm/oran-nearrt-ric
 RELEASE_NAME := oran-nearrt-ric
+ORAN_NAMESPACE := oran-nearrt-ric
 
 .PHONY: all clean lint test build docker-build docker-push helm-lint helm-package deploy
 
