@@ -389,8 +389,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [container-build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && secrets.KUBE_CONFIG_DEV != ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     environment: development
+    env:
+      KUBE_CONFIG_DEV: ${{ secrets.KUBE_CONFIG_DEV }}
     
     steps:
     - name: Checkout code
@@ -403,10 +405,11 @@ jobs:
         path: ./helm-charts/
         
     - name: Set up kubectl
+      if: env.KUBE_CONFIG_DEV != ''
       uses: azure/k8s-set-context@v3
       with:
         method: kubeconfig
-        kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
+        kubeconfig: ${{ env.KUBE_CONFIG_DEV }}
         
     - name: Deploy with Helm
       run: |

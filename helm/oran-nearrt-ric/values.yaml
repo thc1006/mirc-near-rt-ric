@@ -31,6 +31,13 @@ flCoordinator:
     tag: "latest"
     pullPolicy: IfNotPresent
   
+mainDashboard:
+  enabled: true
+  image:
+    repository: ghcr.io/near-rt-ric/dashboard
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
 xappDashboard:
   enabled: true
   image:

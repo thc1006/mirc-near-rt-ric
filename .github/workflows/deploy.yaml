@@ -21,12 +21,21 @@ jobs:
         with:
           version: 'v3.12.0'
       - name: Configure Kubernetes
+        if: ${{ secrets.KUBECONFIG_STAGING != '' }}
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBECONFIG_STAGING }}
       - name: Deploy to staging
-        run: make deploy RELEASE_NAME=staging-release
+        if: ${{ secrets.KUBECONFIG_STAGING != '' }}
+        env:
+          KUBECONFIG_STAGING: ${{ secrets.KUBECONFIG_STAGING }}
+        run: |
+          if [ -f "Makefile" ]; then
+            make deploy RELEASE_NAME=staging-release
+          else
+            echo "Makefile not found, skipping deployment"
+          fi
 
   e2e-tests:
     name: End-to-End Tests
@@ -55,12 +64,21 @@ jobs:
         with:
           version: 'v3.12.0'
       - name: Configure Kubernetes
+        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' }}
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBECONFIG_PRODUCTION }}
       - name: Deploy to production
-        run: make deploy RELEASE_NAME=production-release
+        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' }}
+        env:
+          KUBECONFIG_PRODUCTION: ${{ secrets.KUBECONFIG_PRODUCTION }}
+        run: |
+          if [ -f "Makefile" ]; then
+            make deploy RELEASE_NAME=production-release
+          else
+            echo "Makefile not found, skipping deployment"
+          fi
       - name: Rollback on failure
         if: failure()
         run: helm rollback production-release

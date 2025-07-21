@@ -26,7 +26,8 @@
       "Bash(npm run lint:*)",
       "Bash(npm audit:*)",
       "Bash(go list:*)",
-      "Bash(goimports:*)"
+      "Bash(goimports:*)",
+      "Bash(touch:*)"
     ],
     "deny": []
   }

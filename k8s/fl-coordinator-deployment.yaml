@@ -26,10 +26,26 @@ spec:
         prometheus.io/port: "9091"
     spec:
       serviceAccountName: fl-coordinator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: fl-coordinator
         image: ghcr.io/near-rt-ric/fl-coordinator:latest
         imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
+          capabilities:
+            drop:
+              - ALL
         ports:
         - containerPort: 8080
           name: grpc
@@ -81,6 +97,8 @@ spec:
           mountPath: /data/models
         - name: logs
           mountPath: /var/log
+        - name: tmp
+          mountPath: /tmp
       volumes:
       - name: config
         configMap:
@@ -89,6 +107,8 @@ spec:
         persistentVolumeClaim:
           claimName: fl-models-pvc
       - name: logs
+        emptyDir: {}
+      - name: tmp
         emptyDir: {}
       affinity:
         podAntiAffinity:

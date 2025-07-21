@@ -21,7 +21,6 @@ require (
 	golang.org/x/net v0.2.0
 	golang.org/x/text v0.4.0
 	gonum.org/v1/gonum v0.12.0
-	gonum.org/v1/gonum/stat v0.0.0-20220531110153-02d5da1fb1d0
 	google.golang.org/grpc v1.50.1
 	google.golang.org/protobuf v1.28.1
 	gopkg.in/igm/sockjs-go.v2 v2.1.0
