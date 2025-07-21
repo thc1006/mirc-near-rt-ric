@@ -9,45 +9,159 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/hctsai1006/near-rt-ric/internal/config"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
+// Mock implementations for testing
+type MockJWTAuthenticator struct {
+	mock.Mock
+}
+
+func (m *MockJWTAuthenticator) ValidateToken(tokenString string) (*jwt.RegisteredClaims, error) {
+	args := m.Called(tokenString)
+	return args.Get(0).(*jwt.RegisteredClaims), args.Error(1)
+}
+
+func (m *MockJWTAuthenticator) GenerateToken(claims *jwt.RegisteredClaims) (string, error) {
+	args := m.Called(claims)
+	return args.String(0), args.Error(1)
+}
+
+type MockPolicyManager struct {
+	mock.Mock
+}
+
+func (m *MockPolicyManager) CreatePolicyType(policyType *A1PolicyType) error {
+	args := m.Called(policyType)
+	return args.Error(0)
+}
+
+func (m *MockPolicyManager) GetPolicyType(policyTypeID string) (*A1PolicyType, error) {
+	args := m.Called(policyTypeID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*A1PolicyType), args.Error(1)
+}
+
+func (m *MockPolicyManager) HealthCheck() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+type MockA1Metrics struct {
+	mock.Mock
+}
+
+func (m *MockA1Metrics) Register() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockA1Metrics) Unregister() {
+	m.Called()
+}
+
+// Test configuration helper
+func createTestA1Config() *config.A1Config {
+	return &config.A1Config{
+		Enabled:      true,
+		Port:         10020,
+		TLSPort:      10021,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+		Auth: config.A1AuthConfig{
+			JWT: config.JWTConfig{
+				SecretKey:     "test-secret-key",
+				Issuer:        "near-rt-ric",
+				Audience:      "near-rt-ric-clients",
+				ExpiryTime:    24 * time.Hour,
+				RefreshTime:   1 * time.Hour,
+				SigningMethod: "HS256",
+			},
+		},
+		RateLimit: config.RateLimitConfig{
+			Enabled:   true,
+			RPS:       100,
+			BurstSize: 200,
+		},
+		CORS: config.CORSConfig{
+			Enabled:        true,
+			AllowedOrigins: []string{"*"},
+			AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowedHeaders: []string{"Authorization", "Content-Type"},
+		},
+	}
+}
+
 func TestA1Interface_HealthCheck(t *testing.T) {
-	// Create test configuration
-	config := &A1InterfaceConfig{
-		ListenAddress:         "0.0.0.0",
-		ListenPort:            10020,
-		TLSEnabled:            false,
-		AuthenticationEnabled: false,
-		RequestTimeout:        30 * time.Second,
-		MaxRequestSize:        1024 * 1024,
-		RateLimitEnabled:      false,
-		NotificationEnabled:   false,
-		LogLevel:              "info",
+	a1Interface := createTestA1Interface(t)
+
+	ctx := context.Background()
+	err := a1Interface.Start(ctx)
+	require.NoError(t, err)
+
+	// Mock successful health check
+	a1Interface.policyManager.(*MockPolicyManager).On("HealthCheck").Return(nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/a1-p/healthcheck", nil)
+
+	a1Interface.healthCheck(c)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Clean up
+	err = a1Interface.Stop(ctx)
+	require.NoError(t, err)
+}
+
+// Helper function to create a test A1Interface with mocks
+func createTestA1Interface(t *testing.T) *A1Interface {
+	cfg := createTestA1Config()
+	
+	var logger *logrus.Logger
+	if t != nil {
+		logger = logrus.New()
+		logger.SetLevel(logrus.DebugLevel)
+	} else {
+		logger = logrus.New()
+		logger.SetLevel(logrus.ErrorLevel) // Reduce noise in benchmarks
 	}
 
-	// Create repository
-	repo := NewInMemoryA1Repository()
+	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create A1 interface
-	a1Interface := NewA1Interface(config, repo)
+	// Create mocks
+	mockAuthenticator := &MockJWTAuthenticator{}
+	mockPolicyManager := &MockPolicyManager{}
+	mockMetrics := &MockA1Metrics{}
 
-	// Create test request
-	req := httptest.NewRequest("GET", "/a1-p/healthcheck", nil)
-	w := httptest.NewRecorder()
+	// Set up mock expectations for basic operations
+	mockMetrics.On("Register").Return(nil)
+	mockMetrics.On("Unregister").Return()
 
-	// Handle request
-	a1Interface.handleHealthCheck(w, req)
+	// Create interface
+	a1Interface := &A1Interface{
+		config:         cfg,
+		authenticator:  mockAuthenticator,
+		policyManager:  mockPolicyManager,
+		router:         gin.New(),
+		logger:         logger.WithField("component", "a1-interface"),
+		metrics:        mockMetrics,
+		ctx:            ctx,
+		cancel:         cancel,
+		running:        false,
+		startTime:      time.Now(),
+	}
 
-	// Verify response
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
-
-	var response A1HealthStatus
-	err := json.NewDecoder(w.Body).Decode(&response)
-	require.NoError(t, err)
-	assert.Equal(t, "OK", response.Status)
+	return a1Interface
 }
 
 func TestA1Interface_PolicyTypeManagement(t *testing.T) {
