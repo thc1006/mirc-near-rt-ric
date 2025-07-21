@@ -5,7 +5,24 @@ All notable changes to the O-RAN Near-RT RIC platform are documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2025-07-20
+## [Unreleased] - 2025-07-21
+
+### Documentation Link Fixes
+
+#### Fixed
+- **Documentation Links** - Fixed 13 broken links in main documentation README
+  - Updated file paths to point to correct dashboard documentation location
+  - Replaced Kubernetes-specific external links with O-RAN SC documentation
+  - Fixed relative paths to dashboard-master subdirectory files
+  - Updated issue tracker links to point to this repository
+
+#### Added
+- **CI Link Checking** - Added automated markdown link validation
+  - GitHub Actions workflow for link checking on PRs and pushes
+  - Weekly scheduled link validation to catch external link rot
+  - Comprehensive markdown file scanning across repository
+
+## [Previous] - 2025-07-20
 
 ### Major Framework Repair and Production Readiness
 
