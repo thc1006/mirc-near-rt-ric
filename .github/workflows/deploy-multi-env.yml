@@ -111,14 +111,14 @@ jobs:
           version: ${{ env.HELM_VERSION }}
 
       - name: Configure Kubernetes
-        if: ${{ secrets.KUBECONFIG_DEV != '' }}
+        if: ${{ secrets.KUBECONFIG_DEV != '' && secrets.KUBECONFIG_DEV != null }}
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBECONFIG_DEV }}
 
       - name: Deploy to development
-        if: ${{ secrets.KUBECONFIG_DEV != '' }}
+        if: ${{ secrets.KUBECONFIG_DEV != '' && secrets.KUBECONFIG_DEV != null }}
         env:
           KUBECONFIG_DEV: ${{ secrets.KUBECONFIG_DEV }}
         run: |
@@ -174,14 +174,14 @@ jobs:
           version: ${{ env.HELM_VERSION }}
 
       - name: Configure Kubernetes
-        if: ${{ secrets.KUBECONFIG_STAGING != '' }}
+        if: ${{ secrets.KUBECONFIG_STAGING != '' && secrets.KUBECONFIG_STAGING != null }}
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBECONFIG_STAGING }}
 
       - name: Deploy to staging
-        if: ${{ secrets.KUBECONFIG_STAGING != '' }}
+        if: ${{ secrets.KUBECONFIG_STAGING != '' && secrets.KUBECONFIG_STAGING != null }}
         env:
           KUBECONFIG_STAGING: ${{ secrets.KUBECONFIG_STAGING }}
         run: |
@@ -294,14 +294,14 @@ jobs:
           version: ${{ env.HELM_VERSION }}
 
       - name: Configure Kubernetes
-        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' }}
+        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' && secrets.KUBECONFIG_PRODUCTION != null }}
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBECONFIG_PRODUCTION }}
 
       - name: Pre-production backup
-        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' }}
+        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' && secrets.KUBECONFIG_PRODUCTION != null }}
         run: |
           # Backup current production state
           kubectl get all -n oran-nearrt-ric-production -o yaml > production-backup-${{ github.sha }}.yaml || true
@@ -313,7 +313,7 @@ jobs:
           fi
 
       - name: Deploy to production
-        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' }}
+        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' && secrets.KUBECONFIG_PRODUCTION != null }}
         env:
           KUBECONFIG_PRODUCTION: ${{ secrets.KUBECONFIG_PRODUCTION }}
         run: |
@@ -411,14 +411,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure Kubernetes
-        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' }}
+        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' && secrets.KUBECONFIG_PRODUCTION != null }}
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBECONFIG_PRODUCTION }}
 
       - name: Rollback production deployment
-        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' }}
+        if: ${{ secrets.KUBECONFIG_PRODUCTION != '' && secrets.KUBECONFIG_PRODUCTION != null }}
         run: |
           echo "Rolling back production deployment..."
           helm rollback near-rt-ric-production -n oran-nearrt-ric-production || echo "Helm rollback completed"
