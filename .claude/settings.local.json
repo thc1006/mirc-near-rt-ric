@@ -27,7 +27,10 @@
       "Bash(npm audit:*)",
       "Bash(go list:*)",
       "Bash(goimports:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl:*)"
     ],
     "deny": []
   }
