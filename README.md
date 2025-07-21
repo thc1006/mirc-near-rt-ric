@@ -122,22 +122,7 @@ This repository contains a **complete O-RAN Near Real-Time RAN Intelligent Contr
 | **Node.js** | 16.14.2+ | 18.17.0+ | Frontend development |
 
 ### 🚀 One-Command Production Deployment
-
-```bash
-# Clone repository
-git clone https://github.com/hctsai1006/near-rt-ric.git
-cd near-rt-ric
-
-# Deploy complete O-RAN Near-RT RIC platform
-make deploy
-
-# Or with Helm for production
-helm install oran-nearrt-ric helm/oran-nearrt-ric/ \
-  --create-namespace --namespace oran-nearrt-ric \
-  --set global.environment=production
-```
-
-### 🏃‍♂️ Development Quick Start
+### 🚀 One-Command Automated Deployment```bash# Clone repositorygit clone https://github.com/hctsai1006/near-rt-ric.gitcd near-rt-ric# Option 1: Fully automated deployment (Recommended)./deploy.sh# Option 2: Make-based deploymentmake deploy# Option 3: Manual Helm deploymenthelm dependency build helm/oran-nearrt-ric/helm install oran-nearrt-ric helm/oran-nearrt-ric/   --create-namespace --namespace oran-nearrt-ric   --set oran.enabled=true   --set monitoring.prometheus.enabled=true   --set monitoring.grafana.enabled=true   --wait --timeout=10m```**📋 What gets deployed:**- ✅ **Near-RT RIC Platform**: E2 Termination, A1 Policy, O1 Management- ✅ **O-RU Simulator**: 2 Radio Units with 64 antennas @ 3.7GHz- ✅ **O-DU Simulator**: Distributed Unit with E2/F1 interfaces- ✅ **O-CU Simulator**: Central Unit (CP/UP) with E2/F1/NG interfaces- ✅ **Management Dashboards**: Main K8s + xApp dashboards- ✅ **Federated Learning**: Privacy-preserving ML coordination- ✅ **Monitoring Stack**: Prometheus + Grafana with O-RAN metrics
 
 ```bash
 # 1. Setup local development environment
