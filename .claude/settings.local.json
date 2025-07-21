@@ -30,7 +30,22 @@
       "Bash(touch:*)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git clone:*)",
+      "Bash(cat:*)",
+      "Bash(go:*)",
+      "Bash(GOROOT=/usr/local/go1.22 go install honnef.co/go/tools/cmd/staticcheck@latest)",
+      "Bash(npm ci:*)",
+      "Bash(sed:*)",
+      "Bash(git push:*)",
+      "Bash(diff:*)",
+      "Bash(for f in .github/workflows/*.yml .github/workflows/*.yaml)",
+      "Bash(do echo \"=== $f ===\")",
+      "Bash(head:*)",
+      "Bash(echo)",
+      "Bash(done)",
+      "Bash(cp:*)",
+      "Bash(chmod:*)"
     ],
     "deny": []
   }
