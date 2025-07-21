@@ -1,6 +1,6 @@
 module github.com/hctsai1006/near-rt-ric/dashboard-master
 
-go 1.22
+go 1.23
 
 replace github.com/hctsai1006/near-rt-ric/dashboard-master => ./
 
