@@ -1,0 +1,69 @@
+apiVersion: v2
+name: observability-stack
+description: Production-grade O-RAN observability pipeline with Grafana, Elasticsearch, and Kafka
+type: application
+version: 1.0.0
+appVersion: "latest"
+keywords:
+  - observability
+  - monitoring
+  - logging
+  - streaming
+  - o-ran
+  - grafana
+  - elasticsearch
+  - kafka
+sources:
+  - https://github.com/grafana/helm-charts
+  - https://github.com/elastic/helm-charts
+  - https://github.com/bitnami/charts/tree/main/bitnami/kafka
+maintainers:
+  - name: O-RAN Observability Team
+dependencies:
+  # Grafana Stack
+  - name: grafana
+    version: "7.3.11"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: grafana.enabled
+  - name: prometheus
+    version: "25.8.2"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus.enabled
+  - name: loki
+    version: "5.36.2"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: loki.enabled
+  - name: promtail
+    version: "6.15.3"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: promtail.enabled
+  # Elasticsearch Stack
+  - name: elasticsearch
+    version: "8.5.1"
+    repository: "https://helm.elastic.co"
+    condition: elasticsearch.enabled
+  - name: kibana
+    version: "8.5.1"
+    repository: "https://helm.elastic.co"
+    condition: kibana.enabled
+  - name: logstash
+    version: "8.5.1"
+    repository: "https://helm.elastic.co"
+    condition: logstash.enabled
+  # Kafka Stack
+  - name: kafka
+    version: "26.4.3"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: kafka.enabled
+  - name: kafka-connect
+    version: "0.1.0"
+    repository: "file://./charts/kafka-connect"
+    condition: kafkaConnect.enabled
+  # Jaeger for Distributed Tracing
+  - name: jaeger
+    version: "0.71.14"
+    repository: "https://jaegertracing.github.io/helm-charts"
+    condition: jaeger.enabled
+annotations:
+  category: "Observability"
+  licenses: "Apache-2.0"

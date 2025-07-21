@@ -1,0 +1,329 @@
+# ONAP-based SMO Configuration - Frankfurt Release (Reduced Footprint)
+global:
+  nodePortPrefix: 302
+  persistence: {}
+  centralizedLogging: true
+  loggingRepository: docker.elastic.co
+  loggingImage: elasticsearch/elasticsearch:7.17.9
+  ubuntuInitRepository: docker.io
+  ubuntuInitImage: oomk8s/ubuntu-init:2.0.0
+  pullPolicy: "IfNotPresent"
+  repository: nexus3.onap.org:10001
+  repositorySecret: onap-docker-registry-key
+  flavor: unlimited
+  # Resource Limits for Development
+  resources:
+    small:
+      limits:
+        cpu: 200m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    large:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+
+# O-RAN SMO Components
+smo:
+  enabled: true
+  image:
+    repository: o-ran-sc/smo-o2
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+    hosts:
+      - host: smo.local
+        paths:
+          - path: /
+            pathType: Prefix
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+# A&AI (Active and Available Inventory)
+aai:
+  enabled: true
+  global:
+    cassandra:
+      replicas: 1
+    aai:
+      babel:
+        enabled: false
+      modelloader:
+        enabled: false
+      searchData:
+        enabled: false
+      sparkyBe:
+        enabled: false
+  aai-babel:
+    enabled: false
+  aai-graphadmin:
+    enabled: true
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  aai-modelloader:
+    enabled: false
+  aai-resources:
+    enabled: true
+    resources:
+      limits:
+        cpu: 1
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+  aai-schema-service:
+    enabled: true
+  aai-sparky-be:
+    enabled: false
+  aai-traversal:
+    enabled: true
+    resources:
+      limits:
+        cpu: 1
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+
+# SO (Service Orchestrator)
+so:
+  enabled: true
+  so-admin-cockpit:
+    enabled: false
+  so-bpmn-infra:
+    enabled: true
+    resources:
+      limits:
+        cpu: 1
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+  so-catalog-db-adapter:
+    enabled: true
+  so-cnf-adapter:
+    enabled: true
+  so-etsi-nfvo-ns-lcm:
+    enabled: true
+  so-mariadb:
+    enabled: true
+  so-openstack-adapter:
+    enabled: false
+  so-request-db-adapter:
+    enabled: true
+  so-sdc-controller:
+    enabled: true
+  so-sdnc-adapter:
+    enabled: true
+  so-ve-vnfm-adapter:
+    enabled: false
+
+# SDNC (Software Defined Network Controller)
+sdnc:
+  enabled: true
+  config:
+    enableClustering: false
+    geoEnabled: false
+  cds:
+    enabled: false
+  dmaap-listener:
+    enabled: true
+  network-name-gen:
+    enabled: false
+  ueb-listener:
+    enabled: false
+  sdnc-ansible-server:
+    enabled: false
+  sdnc-web:
+    enabled: true
+  resources:
+    limits:
+      cpu: 1
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+# Policy Framework
+policy:
+  enabled: true
+  policy-api:
+    enabled: true
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  policy-clamp-ac-a1pms-ppnt:
+    enabled: true
+  policy-clamp-ac-k8s-ppnt:
+    enabled: true
+  policy-clamp-runtime-acm:
+    enabled: true
+  policy-distribution:
+    enabled: false
+  policy-drools-pdp:
+    enabled: false
+  policy-gui:
+    enabled: true
+  policy-nexus:
+    enabled: false
+  policy-pap:
+    enabled: true
+  policy-xacml-pdp:
+    enabled: true
+
+# DMaaP (Data Movement as a Platform)
+dmaap:
+  enabled: true
+  message-router:
+    enabled: true
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  dmaap-bc:
+    enabled: false
+  dmaap-dr-node:
+    enabled: false
+  dmaap-dr-prov:
+    enabled: false
+
+# Near-RT RIC Platform
+ricPlatform:
+  enabled: true
+  ricInfra:
+    enabled: true
+  ricPlt:
+    a1mediator:
+      enabled: true
+    appmgr:
+      enabled: true
+    e2mgr:
+      enabled: true
+    e2term:
+      enabled: true
+    rtmgr:
+      enabled: true
+    submgr:
+      enabled: true
+    o1mediator:
+      enabled: true
+  ricAux:
+    dashboard:
+      enabled: true
+    chartmuseum:
+      enabled: false
+
+# Non-RT RIC
+nonRtRic:
+  enabled: true
+  controlpanel:
+    enabled: true
+  a1controller:
+    enabled: true
+  a1simulator:
+    enabled: true
+  policymanagementservice:
+    enabled: true
+  informationservice:
+    enabled: true
+
+# O-RAN O1/O2 Interface Components
+o1o2:
+  enabled: true
+  netconf:
+    enabled: true
+    port: 830
+  restconf:
+    enabled: true
+    port: 8181
+  o2ims:
+    enabled: true
+    port: 5005
+  o2dms:
+    enabled: true
+    port: 5006
+
+# Cassandra
+cassandra:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 1Gi
+
+# MariaDB
+mariadb-galera:
+  enabled: true
+  replicaCount: 1
+  db:
+    user: root
+    name: oom
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+# PostgreSQL for RIC components
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: "secretpassword"
+    database: "ricplt"
+  primary:
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+# Redis for caching
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi

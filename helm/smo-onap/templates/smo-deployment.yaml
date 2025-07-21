@@ -1,0 +1,106 @@
+{{- if .Values.smo.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "smo-onap.fullname" . }}-smo
+  labels:
+    {{- include "smo-onap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "smo-onap.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: smo
+  template:
+    metadata:
+      labels:
+        {{- include "smo-onap.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: smo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "smo-onap.serviceAccountName" . }}
+      containers:
+      - name: smo
+        image: "{{ .Values.smo.image.repository }}:{{ .Values.smo.image.tag }}"
+        imagePullPolicy: {{ .Values.smo.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: o2ims
+          containerPort: 5005
+          protocol: TCP
+        - name: o2dms
+          containerPort: 5006
+          protocol: TCP
+        env:
+        {{- include "smo-onap.commonEnv" . | nindent 8 }}
+        - name: ONAP_AAI_ENDPOINT
+          value: {{ printf "http://%s-aai:8080/aai/v21" .Release.Name }}
+        - name: ONAP_SO_ENDPOINT
+          value: {{ printf "http://%s-so:8080/onap/so/infra" .Release.Name }}
+        - name: ONAP_SDNC_ENDPOINT
+          value: {{ printf "http://%s-sdnc:8282/restconf" .Release.Name }}
+        - name: ONAP_POLICY_ENDPOINT
+          value: {{ printf "http://%s-policy-api:6969/policy/api/v1" .Release.Name }}
+        - name: DMAAP_ENDPOINT
+          value: {{ printf "http://%s-message-router:3904" .Release.Name }}
+        - name: A1_MEDIATOR_ENDPOINT
+          value: {{ include "smo-onap.a1Endpoint" . }}
+        - name: O1_MEDIATOR_ENDPOINT
+          value: {{ include "smo-onap.o1Endpoint" . }}
+        - name: E2_TERM_ENDPOINT
+          value: {{ include "smo-onap.e2Endpoint" . }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        {{- include "smo-onap.resources" .Values.smo | nindent 8 }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/smo
+          readOnly: true
+        - name: logs
+          mountPath: /var/log/smo
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1001
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "smo-onap.fullname" . }}-smo-config
+      - name: logs
+        emptyDir: {}
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - key: node.kubernetes.io/not-ready
+        operator: Exists
+        effect: NoExecute
+        tolerationSeconds: 300
+      - key: node.kubernetes.io/unreachable
+        operator: Exists
+        effect: NoExecute
+        tolerationSeconds: 300
+{{- end }}
