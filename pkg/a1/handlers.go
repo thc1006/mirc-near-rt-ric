@@ -3,403 +3,516 @@ package a1
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
+	"strconv"
 	"time"
 
-	"github.com/hctsai1006/near-rt-ric/pkg/a1/enrichment"
-	a1_generated "github.com/hctsai1006/near-rt-ric/pkg/a1/generated"
-	"github.com/hctsai1006/near-rt-ric/pkg/a1/mlmodel"
-	"github.com/hctsai1006/near-rt-ric/pkg/a1/policy"
+	"github.com/gorilla/mux"
+	"github.com/hctsai1006/near-rt-ric/pkg/common/monitoring"
+	"github.com/sirupsen/logrus"
 )
 
-// Implementations of a1_api.ServerInterface
-func (s *A1Server) CreatePolicy(w http.ResponseWriter, r *http.Request) {
-	var newPolicy a1_generated.Policy
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		s.logger.Errorf("Failed to read request body: %v", err)
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
-		return
-	}
-
-	err = json.Unmarshal(body, &newPolicy)
-	if err != nil {
-		s.logger.Errorf("Failed to unmarshal policy: %v", err)
-		http.Error(w, "Invalid policy data", http.StatusBadRequest)
-		return
-	}
-
-	// Set creation and update timestamps
-	now := time.Now()
-	newPolicy.CreatedAt = &now
-	newPolicy.UpdatedAt = &now
-	status := string(policy.PolicyStatusDraft)
-	newPolicy.Status = &status // Initial status
-
-	if newPolicy.Id == nil || *newPolicy.Id == "" {
-		// Generate a UUID for the policy if not provided
-		id := fmt.Sprintf("policy-%d", time.Now().UnixNano())
-		newPolicy.Id = &id
-	}
-
-	p := policy.Policy{
-		ID:        *newPolicy.Id,
-		Name:      newPolicy.Name,
-		Version:   newPolicy.Version,
-		Content:   newPolicy.Content,
-		Status:    policy.PolicyStatus(*newPolicy.Status),
-		CreatedAt: newPolicy.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: newPolicy.UpdatedAt.Format(time.RFC3339),
-	}
-
-	err = s.policyMgr.CreatePolicy(r.Context(), &p)
-	if err != nil {
-		s.logger.Errorf("Failed to create policy: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to create policy: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(newPolicy)
+// APIHandlers contains all A1 REST API handlers
+type APIHandlers struct {
+	policyManager *PolicyManager
+	authService   *AuthService
+	logger        *logrus.Logger
+	metrics       *monitoring.MetricsCollector
+	startTime     time.Time
 }
 
-func (s *A1Server) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
-	policies, err := s.policyMgr.GetAllPolicies(r.Context())
-	if err != nil {
-		s.logger.Errorf("Failed to get all policies: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to get all policies: %v", err), http.StatusInternalServerError)
-		return
+// NewAPIHandlers creates new API handlers
+func NewAPIHandlers(policyManager *PolicyManager, authService *AuthService, logger *logrus.Logger, metrics *monitoring.MetricsCollector) *APIHandlers {
+	return &APIHandlers{
+		policyManager: policyManager,
+		authService:   authService,
+		logger:        logger.WithField("component", "a1-handlers"),
+		metrics:       metrics,
+		startTime:     time.Now(),
 	}
-
-	var apiPolicies []a1_generated.Policy
-	for _, p := range policies {
-		status := string(p.Status)
-		createdAt, _ := time.Parse(time.RFC3339, p.CreatedAt)
-		updatedAt, _ := time.Parse(time.RFC3339, p.UpdatedAt)
-		apiPolicies = append(apiPolicies, a1_generated.Policy{
-			Id:        &p.ID,
-			Name:      p.Name,
-			Version:   p.Version,
-			Content:   p.Content,
-			Status:    &status,
-			CreatedAt: &createdAt,
-			UpdatedAt: &updatedAt,
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(apiPolicies)
 }
 
-func (s *A1Server) GetPolicyById(w http.ResponseWriter, r *http.Request, id string) {
-	p, err := s.policyMgr.GetPolicy(r.Context(), id)
-	if err != nil {
-		s.logger.Errorf("Failed to get policy %s: %v", id, err)
-		http.Error(w, fmt.Sprintf("Failed to get policy: %v", err), http.StatusNotFound)
-		return
-	}
+// SetupRoutes sets up all A1 REST API routes
+func (h *APIHandlers) SetupRoutes(r *mux.Router) {
+	// Health and status endpoints (no auth required)
+	r.HandleFunc("/a1-p/healthcheck", h.HealthCheck).Methods("GET")
+	r.HandleFunc("/a1-p/status", h.GetStatus).Methods("GET")
 
-	status := string(p.Status)
-	createdAt, _ := time.Parse(time.RFC3339, p.CreatedAt)
-	updatedAt, _ := time.Parse(time.RFC3339, p.UpdatedAt)
-	apiPolicy := a1_generated.Policy{
-		Id:        &p.ID,
-		Name:      p.Name,
-		Version:   p.Version,
-		Content:   p.Content,
-		Status:    &status,
-		CreatedAt: &createdAt,
-		UpdatedAt: &updatedAt,
-	}
+	// Authentication endpoints
+	auth := r.PathPrefix("/a1-p/auth").Subrouter()
+	auth.HandleFunc("/token", h.GenerateToken).Methods("POST")
+	auth.HandleFunc("/refresh", h.RefreshToken).Methods("POST")
+	auth.HandleFunc("/revoke", h.RevokeToken).Methods("POST")
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(apiPolicy)
+	// Policy Type endpoints (require authentication)
+	policyTypes := r.PathPrefix("/a1-p/policytypes").Subrouter()
+	policyTypes.Use(h.authService.AuthMiddleware())
+	
+	policyTypes.HandleFunc("", h.GetPolicyTypes).Methods("GET")
+	policyTypes.HandleFunc("/{policy_type_id}", h.GetPolicyType).Methods("GET")
+	policyTypes.HandleFunc("/{policy_type_id}", h.authService.RequirePermission("policytype:write")(http.HandlerFunc(h.CreatePolicyType))).Methods("PUT")
+	policyTypes.HandleFunc("/{policy_type_id}", h.authService.RequirePermission("policytype:delete")(http.HandlerFunc(h.DeletePolicyType))).Methods("DELETE")
+
+	// Policy Instance endpoints (require authentication)
+	policies := r.PathPrefix("/a1-p/policytypes/{policy_type_id}/policies").Subrouter()
+	policies.Use(h.authService.AuthMiddleware())
+	
+	policies.HandleFunc("", h.GetPolicyInstances).Methods("GET")
+	policies.HandleFunc("/{policy_id}", h.GetPolicyInstance).Methods("GET")
+	policies.HandleFunc("/{policy_id}", h.authService.RequirePermission("policy:write")(http.HandlerFunc(h.CreatePolicyInstance))).Methods("PUT")
+	policies.HandleFunc("/{policy_id}", h.authService.RequirePermission("policy:delete")(http.HandlerFunc(h.DeletePolicyInstance))).Methods("DELETE")
+	policies.HandleFunc("/{policy_id}/status", h.GetPolicyStatus).Methods("GET")
+
+	// Enrichment Information endpoints
+	enrichment := r.PathPrefix("/a1-ei").Subrouter()
+	enrichment.Use(h.authService.AuthMiddleware())
+	
+	enrichment.HandleFunc("/eitypes", h.GetEITypes).Methods("GET")
+	enrichment.HandleFunc("/eitypes/{ei_type_id}", h.GetEIType).Methods("GET")
+	enrichment.HandleFunc("/eijobs", h.GetEIJobs).Methods("GET")
+	enrichment.HandleFunc("/eijobs/{ei_job_id}", h.GetEIJob).Methods("GET")
+	enrichment.HandleFunc("/eijobs/{ei_job_id}", h.authService.RequirePermission("enrichment:write")(http.HandlerFunc(h.CreateEIJob))).Methods("PUT")
+	enrichment.HandleFunc("/eijobs/{ei_job_id}", h.authService.RequirePermission("enrichment:write")(http.HandlerFunc(h.DeleteEIJob))).Methods("DELETE")
+
+	// ML Model Management endpoints
+	models := r.PathPrefix("/a1-p/models").Subrouter()
+	models.Use(h.authService.AuthMiddleware())
+	
+	models.HandleFunc("", h.GetMLModels).Methods("GET")
+	models.HandleFunc("/{model_id}", h.GetMLModel).Methods("GET")
+	models.HandleFunc("/{model_id}", h.authService.RequirePermission("model:write")(http.HandlerFunc(h.DeployMLModel))).Methods("PUT")
+	models.HandleFunc("/{model_id}", h.authService.RequirePermission("model:write")(http.HandlerFunc(h.DeleteMLModel))).Methods("DELETE")
 }
 
-func (s *A1Server) UpdatePolicyById(w http.ResponseWriter, r *http.Request, id string) {
-	var updatedPolicy a1_generated.Policy
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		s.logger.Errorf("Failed to read request body: %v", err)
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
-		return
+// HealthCheck returns the health status of the A1 interface
+func (h *APIHandlers) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusOK)
+
+	health := &A1HealthCheck{
+		Status:    "UP",
+		Timestamp: time.Now(),
+		Version:   "1.0.0",
+		Components: map[string]string{
+			"policy_manager": "UP",
+			"auth_service":   "UP",
+		},
+		Uptime: time.Since(h.startTime),
 	}
 
-	err = json.Unmarshal(body, &updatedPolicy)
-	if err != nil {
-		s.logger.Errorf("Failed to unmarshal policy: %v", err)
-		http.Error(w, "Invalid policy data", http.StatusBadRequest)
-		return
-	}
-
-	if updatedPolicy.Id == nil || *updatedPolicy.Id != id {
-		http.Error(w, "Policy ID in path and body do not match", http.StatusBadRequest)
-		return
-	}
-
-	now := time.Now()
-	updatedPolicy.UpdatedAt = &now
-
-	p := policy.Policy{
-		ID:        *updatedPolicy.Id,
-		Name:      updatedPolicy.Name,
-		Version:   updatedPolicy.Version,
-		Content:   updatedPolicy.Content,
-		Status:    policy.PolicyStatus(*updatedPolicy.Status),
-		CreatedAt: updatedPolicy.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: updatedPolicy.UpdatedAt.Format(time.RFC3339),
-	}
-
-	err = s.policyMgr.UpdatePolicy(r.Context(), &p)
-	if err != nil {
-		s.logger.Errorf("Failed to update policy %s: %v", id, err)
-		http.Error(w, fmt.Sprintf("Failed to update policy: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(updatedPolicy)
+	h.writeJSONResponse(w, http.StatusOK, health)
 }
 
-func (s *A1Server) DeletePolicyById(w http.ResponseWriter, r *http.Request, id string) {
-	err := s.policyMgr.DeletePolicy(r.Context(), id)
-	if err != nil {
-		s.logger.Errorf("Failed to delete policy %s: %v", id, err)
-		http.Error(w, fmt.Sprintf("Failed to delete policy: %v", err), http.StatusInternalServerError)
+// GetStatus returns detailed status information
+func (h *APIHandlers) GetStatus(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusOK)
+
+	stats := h.policyManager.GetStatistics()
+	stats.Uptime = time.Since(h.startTime)
+
+	h.writeJSONResponse(w, http.StatusOK, stats)
+}
+
+// GenerateToken generates a new JWT token
+func (h *APIHandlers) GenerateToken(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	var req TokenRequest
+	if err := h.decodeJSONRequest(r, &req); err != nil {
+		h.recordMetrics(r, start, http.StatusBadRequest)
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 
+	// In a real implementation, validate credentials against user store
+	// For demo purposes, accept hardcoded credentials
+	if req.Username != "admin" || req.Password != "password" {
+		h.recordMetrics(r, start, http.StatusUnauthorized)
+		h.writeErrorResponse(w, http.StatusUnauthorized, "Invalid credentials", "")
+		return
+	}
+
+	// Generate token
+	token, err := h.authService.GenerateToken("admin-id", req.Username, "admin@example.com", []string{"admin"})
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusInternalServerError)
+		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate token", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, token)
+}
+
+// RefreshToken refreshes an existing token
+func (h *APIHandlers) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	var req RefreshTokenRequest
+	if err := h.decodeJSONRequest(r, &req); err != nil {
+		h.recordMetrics(r, start, http.StatusBadRequest)
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	// For demo purposes, return error - refresh tokens not implemented
+	h.recordMetrics(r, start, http.StatusNotImplemented)
+	h.writeErrorResponse(w, http.StatusNotImplemented, "Refresh tokens not implemented", "")
+}
+
+// RevokeToken revokes a token
+func (h *APIHandlers) RevokeToken(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	// Get token from Authorization header
+	user, ok := GetUserFromContext(r.Context())
+	if !ok {
+		h.recordMetrics(r, start, http.StatusUnauthorized)
+		h.writeErrorResponse(w, http.StatusUnauthorized, "Not authenticated", "")
+		return
+	}
+
+	// Revoke token
+	if err := h.authService.RevokeToken(user.Token); err != nil {
+		h.recordMetrics(r, start, http.StatusInternalServerError)
+		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to revoke token", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, map[string]string{"message": "Token revoked successfully"})
+}
+
+// GetPolicyTypes returns all policy types
+func (h *APIHandlers) GetPolicyTypes(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusOK)
+
+	policyTypes := h.policyManager.GetAllPolicyTypes()
+	
+	// Extract just the IDs for the list response
+	typeIDs := make([]PolicyTypeID, len(policyTypes))
+	for i, pt := range policyTypes {
+		typeIDs[i] = pt.PolicyTypeID
+	}
+
+	h.writeJSONResponse(w, http.StatusOK, typeIDs)
+}
+
+// GetPolicyType returns a specific policy type
+func (h *APIHandlers) GetPolicyType(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	vars := mux.Vars(r)
+	policyTypeID := PolicyTypeID(vars["policy_type_id"])
+
+	policyType, err := h.policyManager.GetPolicyType(policyTypeID)
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusNotFound)
+		h.writeErrorResponse(w, http.StatusNotFound, "Policy type not found", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, policyType)
+}
+
+// CreatePolicyType creates a new policy type
+func (h *APIHandlers) CreatePolicyType(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	vars := mux.Vars(r)
+	policyTypeID := PolicyTypeID(vars["policy_type_id"])
+
+	var req PolicyTypeCreateRequest
+	if err := h.decodeJSONRequest(r, &req); err != nil {
+		h.recordMetrics(r, start, http.StatusBadRequest)
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	// Set the policy type ID from URL
+	req.PolicyTypeID = policyTypeID
+
+	policyType, err := h.policyManager.CreatePolicyType(&req)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if err.Error() == "policy type already exists" || err.Error() == "maximum number of policy types reached" {
+			statusCode = http.StatusConflict
+		}
+		h.recordMetrics(r, start, statusCode)
+		h.writeErrorResponse(w, statusCode, "Failed to create policy type", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusCreated)
+	h.writeJSONResponse(w, http.StatusCreated, policyType)
+}
+
+// DeletePolicyType deletes a policy type
+func (h *APIHandlers) DeletePolicyType(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	vars := mux.Vars(r)
+	policyTypeID := PolicyTypeID(vars["policy_type_id"])
+
+	if err := h.policyManager.DeletePolicyType(policyTypeID); err != nil {
+		statusCode := http.StatusInternalServerError
+		if err.Error() == "policy type not found" {
+			statusCode = http.StatusNotFound
+		} else if err.Error() == "active policy instances exist" {
+			statusCode = http.StatusConflict
+		}
+		h.recordMetrics(r, start, statusCode)
+		h.writeErrorResponse(w, statusCode, "Failed to delete policy type", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusNoContent)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *A1Server) GetPolicyTypes(w http.ResponseWriter, r *http.Request) {
-	// For now, return a hardcoded list of policy types
-	policyTypes := []string{
-		"ORAN_E2_POLICY_V1",
-		"ORAN_QOS_POLICY_V1",
-		"ORAN_SLICE_POLICY_V1",
+// GetPolicyInstances returns all policy instances for a policy type
+func (h *APIHandlers) GetPolicyInstances(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	vars := mux.Vars(r)
+	policyTypeID := PolicyTypeID(vars["policy_type_id"])
+
+	policies := h.policyManager.GetPolicyInstancesByType(policyTypeID)
+	
+	// Extract just the IDs for the list response
+	policyIDs := make([]PolicyID, len(policies))
+	for i, policy := range policies {
+		policyIDs[i] = policy.PolicyID
 	}
 
+	h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, policyIDs)
+}
+
+// GetPolicyInstance returns a specific policy instance
+func (h *APIHandlers) GetPolicyInstance(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	vars := mux.Vars(r)
+	policyID := PolicyID(vars["policy_id"])
+
+	policy, err := h.policyManager.GetPolicyInstance(policyID)
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusNotFound)
+		h.writeErrorResponse(w, http.StatusNotFound, "Policy instance not found", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, policy)
+}
+
+// CreatePolicyInstance creates a new policy instance
+func (h *APIHandlers) CreatePolicyInstance(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	vars := mux.Vars(r)
+	policyTypeID := PolicyTypeID(vars["policy_type_id"])
+	policyID := PolicyID(vars["policy_id"])
+
+	var req PolicyInstanceCreateRequest
+	if err := h.decodeJSONRequest(r, &req); err != nil {
+		h.recordMetrics(r, start, http.StatusBadRequest)
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	// Get user from context
+	user, _ := GetUserFromContext(r.Context())
+	userID := ""
+	if user != nil {
+		userID = user.UserID
+	}
+
+	policy, err := h.policyManager.CreatePolicyInstance(policyTypeID, policyID, &req, userID)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if err.Error() == "policy type not found" {
+			statusCode = http.StatusNotFound
+		} else if err.Error() == "policy instance already exists" || err.Error() == "maximum number of policy instances reached" {
+			statusCode = http.StatusConflict
+		} else if err.Error() == "policy data validation failed" {
+			statusCode = http.StatusBadRequest
+		}
+		h.recordMetrics(r, start, statusCode)
+		h.writeErrorResponse(w, statusCode, "Failed to create policy instance", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusCreated)
+	h.writeJSONResponse(w, http.StatusCreated, policy)
+}
+
+// DeletePolicyInstance deletes a policy instance
+func (h *APIHandlers) DeletePolicyInstance(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	vars := mux.Vars(r)
+	policyID := PolicyID(vars["policy_id"])
+
+	// Get user from context
+	user, _ := GetUserFromContext(r.Context())
+	userID := ""
+	if user != nil {
+		userID = user.UserID
+	}
+
+	if err := h.policyManager.DeletePolicyInstance(policyID, userID); err != nil {
+		statusCode := http.StatusInternalServerError
+		if err.Error() == "policy instance not found" || err.Error() == "policy instance is already deleted" {
+			statusCode = http.StatusNotFound
+		}
+		h.recordMetrics(r, start, statusCode)
+		h.writeErrorResponse(w, statusCode, "Failed to delete policy instance", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusNoContent)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetPolicyStatus returns the status of a policy instance
+func (h *APIHandlers) GetPolicyStatus(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
+	vars := mux.Vars(r)
+	policyID := PolicyID(vars["policy_id"])
+
+	status, err := h.policyManager.GetPolicyStatus(policyID)
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusNotFound)
+		h.writeErrorResponse(w, http.StatusNotFound, "Policy instance not found", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, status)
+}
+
+// Enrichment Information handlers (placeholder implementations)
+
+func (h *APIHandlers) GetEITypes(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, []string{})
+}
+
+func (h *APIHandlers) GetEIType(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusNotFound)
+	h.writeErrorResponse(w, http.StatusNotFound, "EI Type not found", "")
+}
+
+func (h *APIHandlers) GetEIJobs(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, []string{})
+}
+
+func (h *APIHandlers) GetEIJob(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusNotFound)
+	h.writeErrorResponse(w, http.StatusNotFound, "EI Job not found", "")
+}
+
+func (h *APIHandlers) CreateEIJob(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusNotImplemented)
+	h.writeErrorResponse(w, http.StatusNotImplemented, "EI Jobs not implemented", "")
+}
+
+func (h *APIHandlers) DeleteEIJob(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusNotImplemented)
+	h.writeErrorResponse(w, http.StatusNotImplemented, "EI Jobs not implemented", "")
+}
+
+// ML Model handlers (placeholder implementations)
+
+func (h *APIHandlers) GetMLModels(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, []string{})
+}
+
+func (h *APIHandlers) GetMLModel(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusNotFound)
+	h.writeErrorResponse(w, http.StatusNotFound, "ML Model not found", "")
+}
+
+func (h *APIHandlers) DeployMLModel(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusNotImplemented)
+	h.writeErrorResponse(w, http.StatusNotImplemented, "ML Models not implemented", "")
+}
+
+func (h *APIHandlers) DeleteMLModel(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusNotImplemented)
+	h.writeErrorResponse(w, http.StatusNotImplemented, "ML Models not implemented", "")
+}
+
+// Helper methods
+
+func (h *APIHandlers) writeJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policyTypes)
+	w.WriteHeader(statusCode)
+	
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		h.logger.WithError(err).Error("Failed to encode JSON response")
+	}
 }
 
-func (s *A1Server) DeployMLModel(w http.ResponseWriter, r *http.Request) {
-	var newModel a1_generated.MLModel
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		s.logger.Errorf("Failed to read request body: %v", err)
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
-		return
+func (h *APIHandlers) writeErrorResponse(w http.ResponseWriter, statusCode int, title, detail string) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(statusCode)
+	
+	errorResp := A1ErrorResponse{
+		Type:   "https://tools.ietf.org/html/rfc7807",
+		Title:  title,
+		Status: statusCode,
+		Detail: detail,
 	}
-
-	err = json.Unmarshal(body, &newModel)
-	if err != nil {
-		s.logger.Errorf("Failed to unmarshal ML model: %v", err)
-		http.Error(w, "Invalid ML model data", http.StatusBadRequest)
-		return
+	
+	if err := json.NewEncoder(w).Encode(errorResp); err != nil {
+		h.logger.WithError(err).Error("Failed to encode error response")
 	}
-
-	// Set creation and update timestamps
-	now := time.Now()
-	newModel.CreatedAt = &now
-	newModel.UpdatedAt = &now
-	status := string(mlmodel.MLModelStatusNew)
-	newModel.Status = &status // Initial status
-
-	if newModel.Id == nil || *newModel.Id == "" {
-		// Generate a UUID for the model if not provided
-		id := fmt.Sprintf("model-%d", time.Now().UnixNano())
-		newModel.Id = &id
-	}
-
-	m := mlmodel.MLModel{
-		ID:        *newModel.Id,
-		Name:      newModel.Name,
-		Version:   newModel.Version,
-		FilePath:  newModel.FilePath,
-		Status:    mlmodel.MLModelStatus(*newModel.Status),
-		CreatedAt: newModel.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: newModel.UpdatedAt.Format(time.RFC3339),
-	}
-
-	err = s.modelMgr.UploadModel(r.Context(), &m)
-	if err != nil {
-		s.logger.Errorf("Failed to upload ML model: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to upload ML model: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	err = s.modelMgr.DeployModel(r.Context(), *newModel.Id)
-	if err != nil {
-		s.logger.Errorf("Failed to deploy ML model %s: %v", *newModel.Id, err)
-		http.Error(w, fmt.Sprintf("Failed to deploy ML model: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(newModel)
 }
 
-func (s *A1Server) GetAllMLModels(w http.ResponseWriter, r *http.Request) {
-	models, err := s.modelMgr.GetAllModels(r.Context())
-	if err != nil {
-		s.logger.Errorf("Failed to get all ML models: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to get all ML models: %v", err), http.StatusInternalServerError)
-		return
+func (h *APIHandlers) decodeJSONRequest(r *http.Request, dst interface{}) error {
+	if r.Header.Get("Content-Type") != "application/json" {
+		return fmt.Errorf("content-type must be application/json")
 	}
-
-	var apiModels []a1_generated.MLModel
-	for _, m := range models {
-		status := string(m.Status)
-		createdAt, _ := time.Parse(time.RFC3339, m.CreatedAt)
-		updatedAt, _ := time.Parse(time.RFC3339, m.UpdatedAt)
-		apiModels = append(apiModels, a1_generated.MLModel{
-			Id:        &m.ID,
-			Name:      m.Name,
-			Version:   m.Version,
-			FilePath:  m.FilePath,
-			Status:    &status,
-			CreatedAt: &createdAt,
-			UpdatedAt: &updatedAt,
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(apiModels)
+	
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	
+	return decoder.Decode(dst)
 }
 
-func (s *A1Server) GetMLModelById(w http.ResponseWriter, r *http.Request, id string) {
-	m, err := s.modelMgr.GetModel(r.Context(), id)
-	if err != nil {
-		s.logger.Errorf("Failed to get ML model %s: %v", id, err)
-		http.Error(w, fmt.Sprintf("Failed to get ML model: %v", err), http.StatusNotFound)
-		return
-	}
-
-	status := string(m.Status)
-	createdAt, _ := time.Parse(time.RFC3339, m.CreatedAt)
-	updatedAt, _ := time.Parse(time.RFC3339, m.UpdatedAt)
-	apiModel := a1_generated.MLModel{
-		Id:        &m.ID,
-		Name:      m.Name,
-		Version:   m.Version,
-		FilePath:  m.FilePath,
-		Status:    &status,
-		CreatedAt: &createdAt,
-		UpdatedAt: &updatedAt,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(apiModel)
-}
-
-func (s *A1Server) RollbackMLModel(w http.ResponseWriter, r *http.Request, id string) {
-	err := s.modelMgr.RollbackModel(r.Context(), id)
-	if err != nil {
-		s.logger.Errorf("Failed to rollback ML model %s: %v", id, err)
-		http.Error(w, fmt.Sprintf("Failed to rollback ML model: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("ML Model %s rolled back successfully", id)))
-}
-
-func (s *A1Server) UpdateEnrichmentInfo(w http.ResponseWriter, r *http.Request) {
-	var newInfo a1_generated.EnrichmentInfo
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		s.logger.Errorf("Failed to read request body: %v", err)
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
-		return
-	}
-
-	err = json.Unmarshal(body, &newInfo)
-	if err != nil {
-		s.logger.Errorf("Failed to unmarshal enrichment info: %v", err)
-		http.Error(w, "Invalid enrichment info data", http.StatusBadRequest)
-		return
-	}
-
-	// Set timestamp and default TTL if not provided
-	now := time.Now()
-	newInfo.Timestamp = &now
-	if newInfo.Ttl == nil || *newInfo.Ttl == 0 {
-		ttl := int64(5 * time.Minute) // Default TTL
-		newInfo.Ttl = &ttl
-	}
-
-	if newInfo.Id == nil || *newInfo.Id == "" {
-		// Generate a UUID for the info if not provided
-		id := fmt.Sprintf("enrichment-%d", time.Now().UnixNano())
-		newInfo.Id = &id
-	}
-
-	ei := enrichment.EnrichmentInfo{
-		ID:        *newInfo.Id,
-		Name:      newInfo.Name,
-		Source:    newInfo.Source,
-		Content:   newInfo.Content,
-		Timestamp: *newInfo.Timestamp,
-		TTL:       time.Duration(*newInfo.Ttl),
-	}
-
-	err = s.enrichMgr.UpdateInfo(r.Context(), &ei)
-	if err != nil {
-		s.logger.Errorf("Failed to update enrichment info: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to update enrichment info: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(newInfo)
-}
-
-func (s *A1Server) GetAllEnrichmentInfo(w http.ResponseWriter, r *http.Request) {
-	infoList, err := s.enrichMgr.GetAllInfo(r.Context())
-	if err != nil {
-		s.logger.Errorf("Failed to get all enrichment info: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to get all enrichment info: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	var apiInfoList []a1_generated.EnrichmentInfo
-	for _, ei := range infoList {
-		ttl := int64(ei.TTL)
-		apiInfoList = append(apiInfoList, a1_generated.EnrichmentInfo{
-			Id:        &ei.ID,
-			Name:      ei.Name,
-			Source:    ei.Source,
-			Content:   ei.Content,
-			Timestamp: &ei.Timestamp,
-			Ttl:       &ttl,
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(apiInfoList)
-}
-
-func (s *A1Server) GetEnrichmentInfoById(w http.ResponseWriter, r *http.Request, id string) {
-	info, err := s.enrichMgr.GetInfo(r.Context(), id)
-	if err != nil {
-		s.logger.Errorf("Failed to get enrichment info %s: %v", id, err)
-		http.Error(w, fmt.Sprintf("Failed to get enrichment info: %v", err), http.StatusNotFound)
-		return
-	}
-
-	ttl := int64(info.TTL)
-	apiInfo := a1_generated.EnrichmentInfo{
-		Id:        &info.ID,
-		Name:      info.Name,
-		Source:    info.Source,
-		Content:   info.Content,
-		Timestamp: &info.Timestamp,
-		Ttl:       &ttl,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(apiInfo)
+func (h *APIHandlers) recordMetrics(r *http.Request, start time.Time, statusCode int) {
+	duration := time.Since(start)
+	method := r.Method
+	path := r.URL.Path
+	
+	// Record metrics
+	h.metrics.RecordA1Request(method, path, statusCode, duration, 0, 0)
+	
+	// Log request
+	h.logger.WithFields(logrus.Fields{
+		"method":      method,
+		"path":        path,
+		"status_code": statusCode,
+		"duration":    duration,
+		"remote_addr": r.RemoteAddr,
+	}).Info("A1 API request processed")
 }
