@@ -1,1 +1,1 @@
-Updated frontend-ci.yml with latest action versions
+Updated ci-orchestrator.yml to use consolidated ci.yml workflow
