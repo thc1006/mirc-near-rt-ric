@@ -15,12 +15,11 @@ RUN adduser -D -g '' builder
 WORKDIR /app
 
 # Copy go mod files
-COPY dashboard-master/dashboard-master/go.mod dashboard-master/dashboard-master/go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
 # Copy source code
-COPY dashboard-master/dashboard-master/src/app/backend/federatedlearning/ ./src/app/backend/federatedlearning/
-COPY dashboard-master/dashboard-master/cmd/fl-coordinator/ ./cmd/fl-coordinator/
+COPY . .
 
 # Build the FL coordinator with security flags
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \

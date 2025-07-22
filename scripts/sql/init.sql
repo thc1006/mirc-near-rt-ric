@@ -1,0 +1,30 @@
+-- SQL schema for A1 interface tables
+
+CREATE TABLE IF NOT EXISTS policies (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    version VARCHAR(50) NOT NULL,
+    content BYTEA,
+    status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ml_models (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    version VARCHAR(50) NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS enrichment_info (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    source VARCHAR(255) NOT NULL,
+    content BYTEA,
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+    ttl BIGINT NOT NULL
+);

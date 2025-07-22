@@ -1,0 +1,313 @@
+openapi: 3.0.0
+info:
+  title: O-RAN A1 Interface API
+  description: API for Policy Management, ML Model Management, and Enrichment Information services.
+  version: 2.0.0
+servers:
+  - url: http://localhost:10020
+    description: Local A1 Interface Server
+
+paths:
+  /a1-p/v2/policies:
+    get:
+      summary: Get all policies
+      operationId: getAllPolicies
+      responses:
+        '200':
+          description: A list of policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Policy'
+    post:
+      summary: Create a new policy
+      operationId: createPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Policy'
+      responses:
+        '201':
+          description: Policy created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '400':
+          description: Invalid policy data
+  /a1-p/v2/policies/{id}:
+    get:
+      summary: Get a policy by ID
+      operationId: getPolicyById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Policy details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '404':
+          description: Policy not found
+    put:
+      summary: Update a policy by ID
+      operationId: updatePolicyById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Policy'
+      responses:
+        '200':
+          description: Policy updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '400':
+          description: Invalid policy data
+        '404':
+          description: Policy not found
+    delete:
+      summary: Delete a policy by ID
+      operationId: deletePolicyById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Policy deleted successfully
+        '404':
+          description: Policy not found
+  /a1-p/v2/policytypes:
+    get:
+      summary: Get all policy types
+      operationId: getPolicyTypes
+      responses:
+        '200':
+          description: A list of policy types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /a1-ml/v1/models:
+    get:
+      summary: Get all ML models
+      operationId: getAllMLModels
+      responses:
+        '200':
+          description: A list of ML models
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MLModel'
+    post:
+      summary: Deploy a new ML model
+      operationId: deployMLModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MLModel'
+      responses:
+        '201':
+          description: ML Model deployed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MLModel'
+        '400':
+          description: Invalid ML model data
+  /a1-ml/v1/models/{id}:
+    get:
+      summary: Get an ML model by ID
+      operationId: getMLModelById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ML Model details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MLModel'
+        '404':
+          description: ML Model not found
+  /a1-ml/v1/models/{id}/rollback:
+    post:
+      summary: Rollback an ML model by ID
+      operationId: rollbackMLModel
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ML Model rolled back successfully
+        '404':
+          description: ML Model not found
+  /a1-ei/v1/info:
+    get:
+      summary: Get all enrichment information
+      operationId: getAllEnrichmentInfo
+      responses:
+        '200':
+          description: A list of enrichment information
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EnrichmentInfo'
+    put:
+      summary: Update enrichment information
+      operationId: updateEnrichmentInfo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrichmentInfo'
+      responses:
+        '200':
+          description: Enrichment information updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrichmentInfo'
+        '400':
+          description: Invalid enrichment information data
+  /a1-ei/v1/info/{id}:
+    get:
+      summary: Get enrichment information by ID
+      operationId: getEnrichmentInfoById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Enrichment information details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrichmentInfo'
+        '404':
+          description: Enrichment information not found
+
+components:
+  schemas:
+    Policy:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+        version:
+          type: string
+        content:
+          type: string
+          format: byte
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+        - name
+        - version
+        - content
+    MLModel:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+        version:
+          type: string
+        filePath:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+        - name
+        - version
+        - filePath
+    EnrichmentInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+        source:
+          type: string
+        content:
+          type: string
+          format: byte
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+        ttl:
+          type: integer
+          format: int64
+      required:
+        - name
+        - source
+        - content
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

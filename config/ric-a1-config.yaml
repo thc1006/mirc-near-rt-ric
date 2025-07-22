@@ -1,0 +1,13 @@
+log_level: "info"
+
+server:
+  address: "0.0.0.0"
+  port: 8080
+  timeout: 30
+  tls:
+    enabled: false
+    cert_path: ""
+    key_path: ""
+
+security:
+  auth_enabled: true

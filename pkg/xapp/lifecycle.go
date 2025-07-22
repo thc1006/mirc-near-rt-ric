@@ -24,4 +24,3 @@ func (m *LifecycleManager) UnregisterxApp(name string) {
 	delete(m.xapps, name)
 	fmt.Printf("Unregistered xApp: %s\n", name)
 }
-

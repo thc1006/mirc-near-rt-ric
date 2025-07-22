@@ -1,0 +1,15 @@
+replicaCount: 1
+image:
+  repository: my-registry/ric-e2
+  pullPolicy: IfNotPresent
+  tag: "1.0.0"
+service:
+  type: LoadBalancer
+  port: 36421
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi

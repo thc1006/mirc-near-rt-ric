@@ -28,7 +28,6 @@ global:
 # Grafana Configuration
 grafana:
   enabled: true
-  adminPassword: "o-ran-admin"
   persistence:
     enabled: true
     size: 10Gi

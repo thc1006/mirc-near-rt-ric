@@ -19,7 +19,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/near-rt-ric/dashboard
+  repository: {{ .Values.image.repository }}/dashboard
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
@@ -27,21 +27,21 @@ image:
 flCoordinator:
   enabled: true
   image:
-    repository: ghcr.io/near-rt-ric/fl-coordinator
+    repository: {{ .Values.image.repository }}/fl-coordinator
     tag: "latest"
     pullPolicy: IfNotPresent
   
 mainDashboard:
   enabled: true
   image:
-    repository: ghcr.io/near-rt-ric/dashboard
+    repository: {{ .Values.image.repository }}/dashboard
     tag: "latest"
     pullPolicy: IfNotPresent
 
 xappDashboard:
   enabled: true
   image:
-    repository: ghcr.io/near-rt-ric/xapp-dashboard
+    repository: {{ .Values.image.repository }}/xapp-dashboard
     tag: "latest"
     pullPolicy: IfNotPresent
 
@@ -120,7 +120,7 @@ redis:
   enabled: true
   auth:
     enabled: true
-    password: "{{ .Values.security.redisPassword | default \"SecureOran2024!\" }}"
+    password: {{ randAlphaNum 16 | b64enc | quote }}
   architecture: standalone
   tls:
     enabled: true
@@ -130,9 +130,9 @@ redis:
 postgresql:
   enabled: true
   auth:
-    postgresPassword: "{{ .Values.security.postgresPassword | default \"SecureOran2024!\" }}"
+    postgresPassword: {{ randAlphaNum 16 | b64enc | quote }}
     username: "fl_user"
-    password: "{{ .Values.security.postgresPassword | default \"SecureOran2024!\" }}"
+    password: {{ randAlphaNum 16 | b64enc | quote }}
     database: "fl_coordinator"
   tls:
     enabled: true
@@ -229,10 +229,7 @@ security:
       enabled: false
       provider: "vault" # vault, aws, azure, gcp
       
-  # Passwords and Keys (use external secrets in production)
-  redisPassword: "SecureOran2024!"
-  postgresPassword: "SecureOran2024!"
-  grafanaAdminPassword: "SecureOran2024!"
+  
   
   # Audit Logging
   audit:

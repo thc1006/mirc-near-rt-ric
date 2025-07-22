@@ -1,0 +1,28 @@
+# Stage 1: Build
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Copy manifests
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the A1 service binary
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /app/bin/ric-a1 ./cmd/ric-a1
+
+# Stage 2: Production
+FROM gcr.io/distroless/static-debian11
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/bin/ric-a1 /usr/local/bin/ric-a1
+
+# Copy configuration
+COPY ./config/ric-a1-config.yaml /etc/ric/config.yaml
+
+USER 65532:65532
+
+# Run the service
+ENTRYPOINT ["/usr/local/bin/ric-a1"]

@@ -382,6 +382,7 @@ jobs:
           --namespace oran-nearrt-ric \
           --create-namespace \
           --set image.tag=${{ github.sha }} \
+          --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
           --set security.tls.enabled=true \
           --set security.authentication.enabled=true \
           --wait

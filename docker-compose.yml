@@ -195,7 +195,7 @@ services:
       - DU_PORT=38472
       - NETCONF_PORT=830
       - NETCONF_USER=${NETCONF_USER:-oranadmin}
-      - NETCONF_PASS=${NETCONF_PASS:-SecureOran2024!}
+      - NETCONF_PASS=${NETCONF_PASS}
     volumes:
       - ./config/o-ru:/config:ro
       - oru-logs:/var/log/o-ru
@@ -298,7 +298,7 @@ services:
       - A1_ENDPOINT=a1-mediator:10020
       - O1_ENDPOINT=o-ru-simulator:830
       - NETCONF_USER=${NETCONF_USER:-oranadmin}
-      - NETCONF_PASS=${NETCONF_PASS:-SecureOran2024!}
+      - NETCONF_PASS=${NETCONF_PASS}
     volumes:
       - ./config/smo:/config:ro
       - smo-data:/data
@@ -314,14 +314,14 @@ services:
     container_name: oran-redis
     ports:
       - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "oran123"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
     volumes:
       - redis-data:/data
     networks:
       - oran-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "oran123", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -335,7 +335,7 @@ services:
     environment:
       - POSTGRES_DB=oran_nearrt_ric
       - POSTGRES_USER=oran
-      - POSTGRES_PASSWORD=oran123
+      - POSTG_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -379,7 +379,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_SECURITY_ADMIN_USER=admin
       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
     volumes:

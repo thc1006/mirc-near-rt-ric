@@ -1,0 +1,28 @@
+# Stage 1: Build
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Copy manifests
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the control service binary
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /app/bin/ric-control ./cmd/ric-control
+
+# Stage 2: Production
+FROM alpine:latest
+
+# Add a non-root user
+RUN addgroup -S ric && adduser -S ric -G ric
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/bin/ric-control /usr/local/bin/ric-control
+
+USER ric
+
+# Run the service
+ENTRYPOINT ["/usr/local/bin/ric-control"]

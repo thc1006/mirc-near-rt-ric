@@ -7,7 +7,7 @@ FROM node:18-alpine AS builder
 # Install security updates and build dependencies
 RUN apk update && apk upgrade && \
     apk add --no-cache python3 make g++ && \
-    npm install -g @angular/cli@13.3.3
+    npm install -g @angular/cli@15.0.0
 
 # Create non-root user for building
 RUN adduser -D -g '' builder
@@ -16,11 +16,11 @@ USER builder
 WORKDIR /app
 
 # Copy package files
-COPY --chown=builder:builder xAPP_dashboard-master/package*.json ./
+COPY --chown=builder:builder frontend-dashboard/package*.json ./
 RUN npm ci --only=production && npm cache clean --force
 
 # Copy source code
-COPY --chown=builder:builder xAPP_dashboard-master/ .
+COPY --chown=builder:builder frontend-dashboard/ .
 
 # Build the Angular application
 RUN ng build --configuration=production --aot --build-optimizer

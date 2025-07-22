@@ -303,7 +303,6 @@ mariadb-galera:
 postgresql:
   enabled: true
   auth:
-    postgresPassword: "secretpassword"
     database: "ricplt"
   primary:
     resources:

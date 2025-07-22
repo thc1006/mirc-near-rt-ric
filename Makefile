@@ -1,247 +1,137 @@
-# Makefile for O-RAN Near-RT RIC Platform with SMO and Observability Stack
+# =================================================================================================
+# Makefile for O-RAN Near-RT RIC
+#
+# This Makefile provides a structured way to build, test, and deploy the RIC components.
+# =================================================================================================
 
-# Variables
-GO_CMD := go
-NPM_CMD := npm
-DOCKER_CMD := docker
-HELM_CMD := helm
-KUBECTL_CMD := kubectl
+.PHONY: all help build test lint fmt security-scan docker-build docker-push clean deploy-local undeploy-local
 
-# Project directories
-MAIN_DASHBOARD_DIR := ./dashboard-master/dashboard-master
-XAPP_DASHBOARD_DIR := ./xAPP_dashboard-master
-FRONTEND_DASHBOARD_DIR := ./frontend-dashboard
-HELM_CHARTS_DIR := ./helm
-SMO_CHART_DIR := $(HELM_CHARTS_DIR)/smo-onap
-OBSERVABILITY_CHART_DIR := $(HELM_CHARTS_DIR)/observability-stack
-ORAN_CHART_DIR := $(HELM_CHARTS_DIR)/oran-nearrt-ric
+# Go parameters
+GO_VERSION   := 1.21
+GO_CMD       := go
+GO_FLAGS     := -ldflags='-w -s'
+CGO_ENABLED  := 0
+GOOS         := linux
+GOARCH       := amd64
 
-# Container registry configuration
-REGISTRY := ghcr.io
-IMAGE_NAMESPACE := $(shell echo $${GITHUB_REPOSITORY_OWNER:-local} | tr '[:upper:]' '[:lower:]')
-MAIN_DASHBOARD_IMAGE := $(REGISTRY)/$(IMAGE_NAMESPACE)/main-dashboard
-XAPP_DASHBOARD_IMAGE := $(REGISTRY)/$(IMAGE_NAMESPACE)/xapp-dashboard
-FRONTEND_DASHBOARD_IMAGE := $(REGISTRY)/$(IMAGE_NAMESPACE)/frontend-dashboard
-FL_COORDINATOR_IMAGE := $(REGISTRY)/$(IMAGE_NAMESPACE)/fl-coordinator
+# Docker parameters
+DOCKER_CMD      ?= docker
+DOCKER_REGISTRY ?= ghcr.io/your-org
+IMAGE_TAG       ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "latest")
 
-# Kubernetes configuration
-NAMESPACE := oran-nearrt-ric
-SMO_NAMESPACE := onap
-OBSERVABILITY_NAMESPACE := observability
-RELEASE_NAME := oran-nearrt-ric
-SMO_RELEASE_NAME := smo-onap
-OBSERVABILITY_RELEASE_NAME := observability-stack
+# Service definitions
+# Binaries to be built
+BINARIES := ric-a1 ric-e2 ric-o1 ric-control
 
-# Colors for output
-RED := \033[0;31m
-GREEN := \033[0;32m
-YELLOW := \033[1;33m
-BLUE := \033[0;34m
-NC := \033[0m # No Color
-
-.PHONY: help clean build test deploy deploy-all deploy-smo deploy-observability demo
+# Docker images to be built
+IMAGES := ric-a1 ric-e2 ric-o1 ric-control fl-coordinator xapp-dashboard
 
 # Default target
-all: clean lint test build
+all: build
 
-## Help
-help: ## Show this help message
-	@echo "$(BLUE)O-RAN Near-RT RIC Platform - Build and Deployment$(NC)"
+# =================================================================================================
+# Help Target
+# =================================================================================================
+
+help:
+	@echo "Usage: make <target>"
 	@echo ""
-	@echo "$(GREEN)Available targets:$(NC)"
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@echo "Targets:"
+	@echo "  all                  - Build all binaries (default)."
+	@echo "  help                 - Show this help message."
+	@echo ""
+	@echo "Development:"
+	@echo "  build                - Build all service binaries."
+	@echo "  test                 - Run all unit tests."
+	@echo "  lint                 - Run static analysis checks."
+	@echo "  fmt                  - Format Go source code."
+	@echo "  clean                - Clean up build artifacts."
+	@echo ""
+	@echo "Security:"
+	@echo "  security-scan        - Run security vulnerability scans (requires trivy)."
+	@echo ""
+	@echo "Docker:"
+	@echo "  docker-build         - Build all Docker images."
+	@echo "  docker-push          - Push all Docker images to the registry."
+	@echo ""
+	@echo "Deployment:"
+	@echo "  deploy-local         - Deploy all components to the local Kubernetes cluster using Helm."
+	@echo "  undeploy-local       - Remove all deployed components from the local cluster."
+	@echo ""
 
-##@ Development
-clean: ## Clean all build artifacts
-	@echo "$(YELLOW)Cleaning build artifacts...$(NC)"
-	@rm -rf $(MAIN_DASHBOARD_DIR)/dist
-	@rm -rf $(XAPP_DASHBOARD_DIR)/dist
-	@rm -rf $(FRONTEND_DASHBOARD_DIR)/dist
+# =================================================================================================
+# Development Targets
+# =================================================================================================
+
+build: $(BINARIES)
+
+$(BINARIES):
+	@echo "--> Building binary: $@"
+	@CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO_CMD) build $(GO_FLAGS) -o ./bin/$@ ./cmd/$@
+
+test:
+	@echo "--> Running unit tests..."
+	@$(GO_CMD) test -v -cover -race ./...
+
+lint:
+	@echo "--> Running linter..."
+	@golangci-lint run
+
+fmt:
+	@echo "--> Formatting Go code..."
+	@$(GO_CMD) fmt ./...
+
+clean:
+	@echo "--> Cleaning up build artifacts..."
 	@rm -rf ./bin
-	@$(GO_CMD) clean -modcache
+	@$(GO_CMD) clean -cache
 
-install-deps: ## Install all dependencies
-	@echo "$(YELLOW)Installing dependencies...$(NC)"
-	@cd $(MAIN_DASHBOARD_DIR) && $(NPM_CMD) ci
-	@cd $(XAPP_DASHBOARD_DIR) && $(NPM_CMD) ci
-	@cd $(FRONTEND_DASHBOARD_DIR) && $(NPM_CMD) install
-	@$(GO_CMD) mod download
+# =================================================================================================
+# Security Targets
+# =================================================================================================
 
-lint: ## Run linting for all components
-	@echo "$(YELLOW)Running linters...$(NC)"
-	@cd $(MAIN_DASHBOARD_DIR) && $(NPM_CMD) run lint
-	@cd $(XAPP_DASHBOARD_DIR) && $(NPM_CMD) run lint
-	@cd $(FRONTEND_DASHBOARD_DIR) && $(NPM_CMD) run lint
-	@$(GO_CMD) vet ./...
+security-scan:
+	@echo "--> Running security scan on Docker images..."
+	@if ! command -v trivy &> /dev/null; then \
+		echo "Trivy not found. Please install trivy to run security scans."; \
+		exit 1; \
+	fi
+	@for img in $(IMAGES); do \
+		echo "Scanning image: $(DOCKER_REGISTRY)/$$img:$(IMAGE_TAG)"; \
+		trivy image --exit-code 1 --severity HIGH,CRITICAL $(DOCKER_REGISTRY)/$$img:$(IMAGE_TAG); \
+	done
 
-test: ## Run tests for all components
-	@echo "$(YELLOW)Running tests...$(NC)"
-	@cd $(MAIN_DASHBOARD_DIR) && $(NPM_CMD) test -- --watchAll=false --coverage
-	@cd $(XAPP_DASHBOARD_DIR) && $(NPM_CMD) test -- --watchAll=false --coverage
-	@cd $(FRONTEND_DASHBOARD_DIR) && $(NPM_CMD) run test
-	@$(GO_CMD) test -v -race -coverprofile=coverage.out ./...
+# =================================================================================================
+# Docker Targets
+# =================================================================================================
 
-build: ## Build all components
-	@echo "$(YELLOW)Building all components...$(NC)"
-	@$(MAKE) build-frontend
-	@$(MAKE) build-backend
-	@$(MAKE) build-xapp-dashboard
+docker-build: $(addprefix docker-build-, $(IMAGES))
 
-build-frontend: ## Build modern React frontend
-	@echo "$(BLUE)Building modern frontend dashboard...$(NC)"
-	@cd $(FRONTEND_DASHBOARD_DIR) && $(NPM_CMD) run build
+docker-build-%:
+	@echo "--> Building Docker image for: $*"
+	@if [ -f ./cmd/$*/Dockerfile ]; then \
+		$(DOCKER_CMD) build -t $(DOCKER_REGISTRY)/$*:$(IMAGE_TAG) -f ./cmd/$*/Dockerfile . ; \
+	else \
+		$(DOCKER_CMD) build -t $(DOCKER_REGISTRY)/$*:$(IMAGE_TAG) -f ./docker/Dockerfile.$* . ; \
+	fi
 
-build-backend: ## Build Go backend services
-	@echo "$(BLUE)Building Go backend services...$(NC)"
-	@mkdir -p ./bin
-	@CGO_ENABLED=0 GOOS=linux $(GO_CMD) build -ldflags="-w -s" -o ./bin/main-dashboard $(MAIN_DASHBOARD_DIR)/src/app/backend/dashboard.go
-	@CGO_ENABLED=0 GOOS=linux $(GO_CMD) build -ldflags="-w -s" -o ./bin/fl-coordinator $(MAIN_DASHBOARD_DIR)/cmd/fl-coordinator/main.go
+docker-push: $(addprefix docker-push-, $(IMAGES))
 
-build-xapp-dashboard: ## Build xApp dashboard
-	@echo "$(BLUE)Building xApp dashboard...$(NC)"
-	@cd $(XAPP_DASHBOARD_DIR) && $(NPM_CMD) run build
+docker-push-%:
+	@echo "--> Pushing Docker image: $(DOCKER_REGISTRY)/$*:$(IMAGE_TAG)"
+	@$(DOCKER_CMD) push $(DOCKER_REGISTRY)/$*:$(IMAGE_TAG)
 
-##@ Container Images
-docker-build: ## Build all Docker images
-	@echo "$(YELLOW)Building Docker images...$(NC)"
-	@$(DOCKER_CMD) build -t $(MAIN_DASHBOARD_IMAGE):latest -f $(MAIN_DASHBOARD_DIR)/Dockerfile .
-	@$(DOCKER_CMD) build -t $(XAPP_DASHBOARD_IMAGE):latest -f $(XAPP_DASHBOARD_DIR)/Dockerfile .
-	@$(DOCKER_CMD) build -t $(FRONTEND_DASHBOARD_IMAGE):latest -f $(FRONTEND_DASHBOARD_DIR)/Dockerfile .
-	@$(DOCKER_CMD) build -t $(FL_COORDINATOR_IMAGE):latest -f $(MAIN_DASHBOARD_DIR)/Dockerfile.fl .
+# =================================================================================================
+# Deployment Targets
+# =================================================================================================
 
-docker-push: ## Push Docker images to registry
-	@echo "$(YELLOW)Pushing Docker images...$(NC)"
-	@$(DOCKER_CMD) push $(MAIN_DASHBOARD_IMAGE):latest
-	@$(DOCKER_CMD) push $(XAPP_DASHBOARD_IMAGE):latest
-	@$(DOCKER_CMD) push $(FRONTEND_DASHBOARD_IMAGE):latest
-	@$(DOCKER_CMD) push $(FL_COORDINATOR_IMAGE):latest
+deploy-local:
+	@echo "--> Deploying Near-RT RIC to local Kubernetes cluster..."
+	@helm upgrade --install oran-nearrt-ric ./helm/oran-nearrt-ric \
+		--namespace oran --create-namespace \
+		--set image.tag=$(IMAGE_TAG) \
+		--values ./helm/oran-nearrt-ric/values.yaml
 
-##@ Helm Charts
-helm-lint: ## Lint all Helm charts
-	@echo "$(YELLOW)Linting Helm charts...$(NC)"
-	@$(HELM_CMD) lint $(ORAN_CHART_DIR)
-	@$(HELM_CMD) lint $(SMO_CHART_DIR)
-	@$(HELM_CMD) lint $(OBSERVABILITY_CHART_DIR)
-
-helm-deps: ## Update Helm chart dependencies
-	@echo "$(YELLOW)Updating Helm dependencies...$(NC)"
-	@$(HELM_CMD) dependency update $(ORAN_CHART_DIR)
-	@$(HELM_CMD) dependency update $(SMO_CHART_DIR)
-	@$(HELM_CMD) dependency update $(OBSERVABILITY_CHART_DIR)
-
-helm-package: ## Package Helm charts
-	@echo "$(YELLOW)Packaging Helm charts...$(NC)"
-	@$(HELM_CMD) package $(ORAN_CHART_DIR) -d ./helm-packages
-	@$(HELM_CMD) package $(SMO_CHART_DIR) -d ./helm-packages
-	@$(HELM_CMD) package $(OBSERVABILITY_CHART_DIR) -d ./helm-packages
-
-##@ Deployment
-deploy: deploy-observability deploy-smo deploy-oran ## Deploy complete O-RAN platform
-
-deploy-oran: ## Deploy O-RAN Near-RT RIC platform
-	@echo "$(GREEN)Deploying O-RAN Near-RT RIC platform...$(NC)"
-	@$(KUBECTL_CMD) create namespace $(NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_CMD) apply -f -
-	@$(HELM_CMD) upgrade --install $(RELEASE_NAME) $(ORAN_CHART_DIR) \
-		--namespace $(NAMESPACE) \
-		--set global.registry=$(REGISTRY)/$(IMAGE_NAMESPACE) \
-		--set frontend.image.tag=latest \
-		--set backend.image.tag=latest \
-		--wait --timeout=10m
-
-deploy-smo: ## Deploy SMO (Service Management & Orchestration) stack
-	@echo "$(GREEN)Deploying SMO ONAP stack...$(NC)"
-	@$(KUBECTL_CMD) create namespace $(SMO_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_CMD) apply -f -
-	@$(HELM_CMD) repo add onap https://nexus3.onap.org/repository/onap-helm-release/ || true
-	@$(HELM_CMD) repo update
-	@$(HELM_CMD) upgrade --install $(SMO_RELEASE_NAME) $(SMO_CHART_DIR) \
-		--namespace $(SMO_NAMESPACE) \
-		--set global.flavor=unlimited \
-		--set global.persistence.enabled=true \
-		--wait --timeout=15m
-
-deploy-observability: ## Deploy observability stack (Grafana, Prometheus, Elasticsearch, Kafka)
-	@echo "$(GREEN)Deploying observability stack...$(NC)"
-	@$(KUBECTL_CMD) create namespace $(OBSERVABILITY_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL_CMD) apply -f -
-	@$(HELM_CMD) repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
-	@$(HELM_CMD) repo add grafana https://grafana.github.io/helm-charts || true
-	@$(HELM_CMD) repo add elastic https://helm.elastic.co || true
-	@$(HELM_CMD) repo add bitnami https://charts.bitnami.com/bitnami || true
-	@$(HELM_CMD) repo update
-	@$(HELM_CMD) upgrade --install $(OBSERVABILITY_RELEASE_NAME) $(OBSERVABILITY_CHART_DIR) \
-		--namespace $(OBSERVABILITY_NAMESPACE) \
-		--set grafana.enabled=true \
-		--set prometheus.enabled=true \
-		--set elasticsearch.enabled=true \
-		--set kafka.enabled=true \
-		--wait --timeout=12m
-
-undeploy: ## Remove all deployments
-	@echo "$(RED)Removing all deployments...$(NC)"
-	@$(HELM_CMD) uninstall $(RELEASE_NAME) -n $(NAMESPACE) || true
-	@$(HELM_CMD) uninstall $(SMO_RELEASE_NAME) -n $(SMO_NAMESPACE) || true
-	@$(HELM_CMD) uninstall $(OBSERVABILITY_RELEASE_NAME) -n $(OBSERVABILITY_NAMESPACE) || true
-	@$(KUBECTL_CMD) delete namespace $(NAMESPACE) || true
-	@$(KUBECTL_CMD) delete namespace $(SMO_NAMESPACE) || true
-	@$(KUBECTL_CMD) delete namespace $(OBSERVABILITY_NAMESPACE) || true
-
-##@ Testing & Validation
-e2e: ## Run end-to-end tests
-	@echo "$(YELLOW)Running end-to-end tests...$(NC)"
-	@$(MAKE) test-interfaces
-	@$(MAKE) test-smo
-	@$(MAKE) test-observability
-
-test-interfaces: ## Test O-RAN interfaces (E2, A1, O1)
-	@echo "$(BLUE)Testing O-RAN interfaces...$(NC)"
-	@curl -f http://localhost:8080/api/v1/interfaces/e2/health || echo "$(RED)E2 interface test failed$(NC)"
-	@curl -f http://localhost:8080/api/v1/interfaces/a1/health || echo "$(RED)A1 interface test failed$(NC)"
-	@curl -f http://localhost:8080/api/v1/interfaces/o1/health || echo "$(RED)O1 interface test failed$(NC)"
-
-test-smo: ## Test SMO health endpoints
-	@echo "$(BLUE)Testing SMO components...$(NC)"
-	@$(KUBECTL_CMD) get pods -n $(SMO_NAMESPACE) | grep Running || echo "$(RED)SMO components not all running$(NC)"
-
-test-observability: ## Test observability stack
-	@echo "$(BLUE)Testing observability stack...$(NC)"
-	@curl -f http://localhost:3001/api/health || echo "$(RED)Grafana health check failed$(NC)"
-	@curl -f http://localhost:9090/-/healthy || echo "$(RED)Prometheus health check failed$(NC)"
-
-##@ Demo & Showcase
-demo: ## Run complete demo deployment
-	@echo "$(GREEN)🚀 Starting O-RAN Near-RT RIC Demo Deployment$(NC)"
-	@echo "$(BLUE)This will deploy the complete O-RAN platform with:$(NC)"
-	@echo "  ✅ Near-RT RIC with modern React dashboard"
-	@echo "  ✅ SMO stack based on ONAP Frankfurt"
-	@echo "  ✅ Full observability pipeline (Grafana, Prometheus, Elasticsearch, Kafka)"
-	@echo "  ✅ Auto-discovery of network functions"
-	@echo "  ✅ Real-time KPIs and alarms"
-	@echo ""
-	@$(MAKE) deploy
-	@echo "$(GREEN)✅ Demo deployment completed!$(NC)"
-	@echo ""
-	@echo "$(GREEN)🎉 O-RAN Platform is ready!$(NC)"
-	@echo "$(BLUE)Run 'make port-forward' to access dashboards$(NC)"
-
-port-forward: ## Setup port forwarding for local access
-	@echo "$(GREEN)Setting up port forwarding...$(NC)"
-	@$(KUBECTL_CMD) port-forward -n $(NAMESPACE) service/$(RELEASE_NAME)-frontend 3000:80 &
-	@$(KUBECTL_CMD) port-forward -n $(NAMESPACE) service/$(RELEASE_NAME)-backend 8080:8080 &
-	@$(KUBECTL_CMD) port-forward -n $(OBSERVABILITY_NAMESPACE) service/$(OBSERVABILITY_RELEASE_NAME)-grafana 3001:80 &
-	@$(KUBECTL_CMD) port-forward -n $(OBSERVABILITY_NAMESPACE) service/$(OBSERVABILITY_RELEASE_NAME)-prometheus-server 9090:80 &
-	@echo "$(GREEN)Port forwarding active:$(NC)"
-	@echo "  Frontend Dashboard: http://localhost:3000"
-	@echo "  Backend API:        http://localhost:8080"
-	@echo "  Grafana:           http://localhost:3001"
-	@echo "  Prometheus:        http://localhost:9090"
-
-status: ## Show deployment status
-	@echo "$(GREEN)O-RAN Platform Status:$(NC)"
-	@echo ""
-	@echo "$(BLUE)Near-RT RIC Components:$(NC)"
-	@$(KUBECTL_CMD) get pods -n $(NAMESPACE) -o wide 2>/dev/null || echo "  No Near-RT RIC deployment found"
-	@echo ""
-	@echo "$(BLUE)SMO Components:$(NC)"
-	@$(KUBECTL_CMD) get pods -n $(SMO_NAMESPACE) -o wide 2>/dev/null || echo "  No SMO deployment found"
-	@echo ""
-	@echo "$(BLUE)Observability Components:$(NC)"
-	@$(KUBECTL_CMD) get pods -n $(OBSERVABILITY_NAMESPACE) -o wide 2>/dev/null || echo "  No observability stack found"
+undeploy-local:
+	@echo "--> Undeploying Near-RT RIC from local Kubernetes cluster..."
+	@helm uninstall oran-nearrt-ric --namespace oran
