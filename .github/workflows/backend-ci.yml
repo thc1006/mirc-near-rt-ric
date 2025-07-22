@@ -32,7 +32,6 @@ jobs:
     strategy:
       matrix:
         component:
-          - dashboard-master/dashboard-master
           - .
     
     steps:
@@ -187,7 +186,6 @@ jobs:
           go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage to Codecov
-        if: matrix.component == 'dashboard-master/dashboard-master'
         uses: codecov/codecov-action@v4
         with:
           files: ${{ matrix.component }}/coverage.out
@@ -203,8 +201,6 @@ jobs:
           name: backend-${{ matrix.component }}-${{ github.sha }}
           path: |
             ${{ matrix.component }}/app
-            ${{ matrix.component }}/dashboard
-            ${{ matrix.component }}/fl-coordinator
             ${{ matrix.component }}/coverage.out
           retention-days: 7
 
