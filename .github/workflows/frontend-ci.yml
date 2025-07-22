@@ -6,14 +6,10 @@ on:
     branches: [main, develop]
     paths:
       - 'xAPP_dashboard-master/**'
-      - 'dashboard-master/dashboard-master/src/app/frontend/**'
-      - 'frontend-dashboard/**'
   pull_request:
     branches: [main]
     paths:
       - 'xAPP_dashboard-master/**'
-      - 'dashboard-master/dashboard-master/src/app/frontend/**'
-      - 'frontend-dashboard/**'
 
 env:
   NODE_VERSION: '18'
@@ -29,17 +25,6 @@ jobs:
         component:
           - path: xAPP_dashboard-master
             name: xapp-dashboard
-          - path: dashboard-master/dashboard-master/src/app/frontend
-            name: main-dashboard-frontend
-          - path: frontend-dashboard
-            name: standalone-frontend
-        exclude:
-          - component:
-              path: dashboard-master/dashboard-master/src/app/frontend
-              name: main-dashboard-frontend
-          - component:
-              path: frontend-dashboard
-              name: standalone-frontend
 
     steps:
       - name: Checkout code
