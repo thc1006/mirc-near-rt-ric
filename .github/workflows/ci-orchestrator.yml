@@ -108,21 +108,13 @@ jobs:
           echo "- Docker Auth: ${{ steps.setup-docker-auth.outputs.configured }}"
 
   # Trigger backend CI with proper authentication
-  backend-ci:
-    name: Backend CI Pipeline
+  build-and-test:
+    name: Build and Test All Components
     needs: setup-auth
-    uses: ./.github/workflows/backend-ci.yml
+    uses: ./.github/workflows/ci.yml
     secrets: inherit
     with:
       force_rebuild: ${{ github.event.inputs.force_rebuild == 'true' }}
-
-  # Trigger frontend CI with package lock fixes
-  frontend-ci:
-    name: Frontend CI Pipeline
-    needs: setup-auth
-    uses: ./.github/workflows/frontend-ci.yml
-    secrets: inherit
-    with:
       skip_tests: ${{ github.event.inputs.skip_tests == 'true' }}
 
   # Security scanning
@@ -136,8 +128,8 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: [backend-ci, frontend-ci]
-    if: github.event_name == 'pull_request' && needs.backend-ci.result == 'success' && needs.frontend-ci.result == 'success'
+    needs: [build-and-test]
+    if: github.event_name == 'pull_request' && needs.build-and-test.result == 'success'
     
     steps:
       - name: Checkout code
@@ -196,7 +188,7 @@ jobs:
   build-images:
     name: Build & Push Images
     runs-on: ubuntu-latest
-    needs: [backend-ci, frontend-ci, setup-auth]
+    needs: [build-and-test, setup-auth]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     strategy:
@@ -288,7 +280,7 @@ jobs:
   handle-failures:
     name: Handle CI/CD Failures
     runs-on: ubuntu-latest
-    needs: [backend-ci, frontend-ci, security-scan, integration-tests, build-images, deploy]
+    needs: [build-and-test, security-scan, integration-tests, build-images, deploy]
     if: always() && contains(needs.*.result, 'failure')
     
     steps:
@@ -357,7 +349,7 @@ jobs:
   success-report:
     name: Success Report
     runs-on: ubuntu-latest
-    needs: [backend-ci, frontend-ci, security-scan, integration-tests, build-images, deploy]
+    needs: [build-and-test, security-scan, integration-tests, build-images, deploy]
     if: always() && !contains(needs.*.result, 'failure')
     
     steps:
