@@ -30,6 +30,8 @@ const (
 type RICServer struct {
 	config      *config.Config
 	logger      *logrus.Logger
+	metrics     *monitoring.MetricsCollector
+	redisClient *redis.Client
 	
 	// O-RAN interfaces
 	e2Interface *e2.E2Interface
@@ -54,9 +56,28 @@ func NewRICServer(cfg *config.Config) (*RICServer, error) {
 		"version": AppVersion,
 	}).Info("Initializing O-RAN Near-RT RIC server")
 
+	// Initialize metrics collector
+	metrics := monitoring.NewMetricsCollector(cfg.Monitoring)
+
+	// Initialize Redis client
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.Database,
+	})
+
+	// Ping Redis to verify connection
+	_, err := redisClient.Ping(ctx).Result()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+	}
+
 	server := &RICServer{
 		config: cfg,
 		logger: logger,
+		metrics: metrics,
+		redisClient: redisClient,
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -68,7 +89,6 @@ func NewRICServer(cfg *config.Config) (*RICServer, error) {
 	}
 
 	// Initialize xApp manager
-	var err error
 	server.xappManager, err = xapp.NewManager(cfg.XApp, logger)
 	if err != nil {
 		cancel()
@@ -89,7 +109,7 @@ func (s *RICServer) initializeInterfaces() error {
 	}
 
 	// Initialize A1 interface
-	s.a1Interface, err = a1.NewA1Interface(s.config.A1, s.logger)
+	s.a1Interface, err = a1.NewA1Interface(s.config.A1, s.logger, s.metrics, s.redisClient, s.config.Database)
 	if err != nil {
 		return fmt.Errorf("failed to create A1 interface: %w", err)
 	}
@@ -199,6 +219,26 @@ func (s *RICServer) Stop() error {
 	g.Go(func() error {
 		if err := s.e2Interface.Stop(ctx); err != nil {
 			s.logger.WithError(err).Error("Error stopping E2 interface")
+		}
+		return nil
+	})
+
+	// Close Redis client
+	g.Go(func() error {
+		if s.redisClient != nil {
+			if err := s.redisClient.Close(); err != nil {
+				s.logger.WithError(err).Error("Error closing Redis client")
+			}
+		}
+		return nil
+	})
+
+	// Close database connection
+	g.Go(func() error {
+		if s.a1Interface != nil && s.a1Interface.Database() != nil {
+			if err := s.a1Interface.Database().Close(); err != nil {
+				s.logger.WithError(err).Error("Error closing database connection")
+			}
 		}
 		return nil
 	})

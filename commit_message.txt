@@ -1,1 +1,1 @@
-Updated ci-orchestrator.yml needs sections
+Deleted redundant ci-cd.yml and ci-integrated.yml workflow files

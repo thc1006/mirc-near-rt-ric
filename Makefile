@@ -4,7 +4,7 @@
 # This Makefile provides a structured way to build, test, and deploy the RIC components.
 # =================================================================================================
 
-.PHONY: all help build test lint fmt security-scan docker-build docker-push clean deploy-local undeploy-local
+.PHONY: all help build test lint fmt security-scan docker-build docker-push clean deploy-local undeploy-local test-e2e
 
 # Go parameters
 GO_VERSION   := 1.21
@@ -24,7 +24,7 @@ IMAGE_TAG       ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "l
 BINARIES := ric-a1 ric-e2 ric-o1 ric-control
 
 # Docker images to be built
-IMAGES := ric-a1 ric-e2 ric-o1 ric-control fl-coordinator xapp-dashboard
+IMAGES := ric-a1 ric-e2 ric-o1 ric-control
 
 # Default target
 all: build
@@ -57,6 +57,7 @@ help:
 	@echo "Deployment:"
 	@echo "  deploy-local         - Deploy all components to the local Kubernetes cluster using Helm."
 	@echo "  undeploy-local       - Remove all deployed components from the local cluster."
+	@echo "  test-e2e             - Run end-to-end tests."
 	@echo ""
 
 # =================================================================================================
@@ -84,6 +85,7 @@ fmt:
 clean:
 	@echo "--> Cleaning up build artifacts..."
 	@rm -rf ./bin
+	@rm -rf ./coverage.out
 	@$(GO_CMD) clean -cache
 
 # =================================================================================================
@@ -109,11 +111,7 @@ docker-build: $(addprefix docker-build-, $(IMAGES))
 
 docker-build-%:
 	@echo "--> Building Docker image for: $*"
-	@if [ -f ./cmd/$*/Dockerfile ]; then \
-		$(DOCKER_CMD) build -t $(DOCKER_REGISTRY)/$*:$(IMAGE_TAG) -f ./cmd/$*/Dockerfile . ; \
-	else \
-		$(DOCKER_CMD) build -t $(DOCKER_REGISTRY)/$*:$(IMAGE_TAG) -f ./docker/Dockerfile.$* . ; \
-	fi
+	@$(DOCKER_CMD) build -t $(DOCKER_REGISTRY)/$*:$(IMAGE_TAG) -f ./build/ci/Dockerfile.$* .
 
 docker-push: $(addprefix docker-push-, $(IMAGES))
 
@@ -127,11 +125,15 @@ docker-push-%:
 
 deploy-local:
 	@echo "--> Deploying Near-RT RIC to local Kubernetes cluster..."
-	@helm upgrade --install oran-nearrt-ric ./helm/oran-nearrt-ric \
-		--namespace oran --create-namespace \
-		--set image.tag=$(IMAGE_TAG) \
-		--values ./helm/oran-nearrt-ric/values.yaml
+	@helm upgrade --install ric-a1 ./deployments/helm/ric-a1 --namespace oran --create-namespace --set image.tag=$(IMAGE_TAG)
+	@helm upgrade --install ric-e2 ./deployments/helm/ric-e2 --namespace oran --create-namespace --set image.tag=$(IMAGE_TAG)
+	@helm upgrade --install ric-o1 ./deployments/helm/ric-o1 --namespace oran --create-namespace --set image.tag=$(IMAGE_TAG)
+	@helm upgrade --install ric-control ./deployments/helm/ric-control --namespace oran --create-namespace --set image.tag=$(IMAGE_TAG)
 
 undeploy-local:
 	@echo "--> Undeploying Near-RT RIC from local Kubernetes cluster..."
-	@helm uninstall oran-nearrt-ric --namespace oran
+	@helm uninstall ric-a1 ric-e2 ric-o1 ric-control --namespace oran
+
+test-e2e:
+	@echo "--> Running end-to-end tests..."
+	@$(GO_CMD) test -v ./test/e2e/...

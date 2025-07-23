@@ -14,21 +14,25 @@ import (
 
 // APIHandlers contains all A1 REST API handlers
 type APIHandlers struct {
-	policyManager *PolicyManager
-	authService   *AuthService
-	logger        *logrus.Logger
-	metrics       *monitoring.MetricsCollector
-	startTime     time.Time
+	policyManager     *PolicyManager
+	mlModelManager    *MLModelManager
+	enrichmentManager *EnrichmentManager
+	authService       *AuthService
+	logger            *logrus.Logger
+	metrics           *monitoring.MetricsCollector
+	startTime         time.Time
 }
 
 // NewAPIHandlers creates new API handlers
-func NewAPIHandlers(policyManager *PolicyManager, authService *AuthService, logger *logrus.Logger, metrics *monitoring.MetricsCollector) *APIHandlers {
+func NewAPIHandlers(policyManager *PolicyManager, mlModelManager *MLModelManager, enrichmentManager *EnrichmentManager, authService *AuthService, logger *logrus.Logger, metrics *monitoring.MetricsCollector) *APIHandlers {
 	return &APIHandlers{
-		policyManager: policyManager,
-		authService:   authService,
-		logger:        logger.WithField("component", "a1-handlers"),
-		metrics:       metrics,
-		startTime:     time.Now(),
+		policyManager:     policyManager,
+		mlModelManager:    mlModelManager,
+		enrichmentManager: enrichmentManager,
+		authService:       authService,
+		logger:            logger,
+		metrics:           metrics,
+		startTime:         time.Now(),
 	}
 }
 
@@ -50,8 +54,8 @@ func (h *APIHandlers) SetupRoutes(r *mux.Router) {
 	
 	policyTypes.HandleFunc("", h.GetPolicyTypes).Methods("GET")
 	policyTypes.HandleFunc("/{policy_type_id}", h.GetPolicyType).Methods("GET")
-	policyTypes.HandleFunc("/{policy_type_id}", h.authService.RequirePermission("policytype:write")(http.HandlerFunc(h.CreatePolicyType))).Methods("PUT")
-	policyTypes.HandleFunc("/{policy_type_id}", h.authService.RequirePermission("policytype:delete")(http.HandlerFunc(h.DeletePolicyType))).Methods("DELETE")
+	policyTypes.Handle("/{policy_type_id}", h.authService.RequirePermission("policytype:write")(http.HandlerFunc(h.CreatePolicyType))).Methods("PUT")
+	policyTypes.Handle("/{policy_type_id}", h.authService.RequirePermission("policytype:delete")(http.HandlerFunc(h.DeletePolicyType))).Methods("DELETE")
 
 	// Policy Instance endpoints (require authentication)
 	policies := r.PathPrefix("/a1-p/policytypes/{policy_type_id}/policies").Subrouter()
@@ -59,29 +63,27 @@ func (h *APIHandlers) SetupRoutes(r *mux.Router) {
 	
 	policies.HandleFunc("", h.GetPolicyInstances).Methods("GET")
 	policies.HandleFunc("/{policy_id}", h.GetPolicyInstance).Methods("GET")
-	policies.HandleFunc("/{policy_id}", h.authService.RequirePermission("policy:write")(http.HandlerFunc(h.CreatePolicyInstance))).Methods("PUT")
-	policies.HandleFunc("/{policy_id}", h.authService.RequirePermission("policy:delete")(http.HandlerFunc(h.DeletePolicyInstance))).Methods("DELETE")
+	policies.Handle("/{policy_id}", h.authService.RequirePermission("policy:write")(http.HandlerFunc(h.CreatePolicyInstance))).Methods("PUT")
+	policies.Handle("/{policy_id}", h.authService.RequirePermission("policy:delete")(http.HandlerFunc(h.DeletePolicyInstance))).Methods("DELETE")
 	policies.HandleFunc("/{policy_id}/status", h.GetPolicyStatus).Methods("GET")
 
-	// Enrichment Information endpoints
-	enrichment := r.PathPrefix("/a1-ei").Subrouter()
-	enrichment.Use(h.authService.AuthMiddleware())
-	
-	enrichment.HandleFunc("/eitypes", h.GetEITypes).Methods("GET")
-	enrichment.HandleFunc("/eitypes/{ei_type_id}", h.GetEIType).Methods("GET")
-	enrichment.HandleFunc("/eijobs", h.GetEIJobs).Methods("GET")
-	enrichment.HandleFunc("/eijobs/{ei_job_id}", h.GetEIJob).Methods("GET")
-	enrichment.HandleFunc("/eijobs/{ei_job_id}", h.authService.RequirePermission("enrichment:write")(http.HandlerFunc(h.CreateEIJob))).Methods("PUT")
-	enrichment.HandleFunc("/eijobs/{ei_job_id}", h.authService.RequirePermission("enrichment:write")(http.HandlerFunc(h.DeleteEIJob))).Methods("DELETE")
-
 	// ML Model Management endpoints
-	models := r.PathPrefix("/a1-p/models").Subrouter()
-	models.Use(h.authService.AuthMiddleware())
-	
-	models.HandleFunc("", h.GetMLModels).Methods("GET")
-	models.HandleFunc("/{model_id}", h.GetMLModel).Methods("GET")
-	models.HandleFunc("/{model_id}", h.authService.RequirePermission("model:write")(http.HandlerFunc(h.DeployMLModel))).Methods("PUT")
-	models.HandleFunc("/{model_id}", h.authService.RequirePermission("model:write")(http.HandlerFunc(h.DeleteMLModel))).Methods("DELETE")
+	mlModels := r.PathPrefix("/a1-ml/v1/models").Subrouter()
+	mlModels.Use(h.authService.AuthMiddleware())
+
+	mlModels.HandleFunc("", h.GetMLModels).Methods("GET")
+	mlModels.HandleFunc("/{model_id}", h.GetMLModel).Methods("GET")
+	mlModels.Handle("/{model_id}", h.authService.RequirePermission("model:write")(http.HandlerFunc(h.DeployMLModel))).Methods("PUT")
+	mlModels.Handle("/{model_id}", h.authService.RequirePermission("model:delete")(http.HandlerFunc(h.DeleteMLModel))).Methods("DELETE")
+
+	// Enrichment Information endpoints
+	enrichment := r.PathPrefix("/a1-ei/v1/info").Subrouter()
+	enrichment.Use(h.authService.AuthMiddleware())
+
+	enrichment.HandleFunc("", h.GetEnrichmentJobs).Methods("GET")
+	enrichment.HandleFunc("/{job_id}", h.GetEnrichmentJob).Methods("GET")
+	enrichment.Handle("/{job_id}", h.authService.RequirePermission("enrichment:write")(http.HandlerFunc(h.CreateEnrichmentJob))).Methods("PUT")
+	enrichment.Handle("/{job_id}", h.authService.RequirePermission("enrichment:delete")(http.HandlerFunc(h.DeleteEnrichmentJob))).Methods("DELETE")
 }
 
 // HealthCheck returns the health status of the A1 interface
@@ -108,7 +110,12 @@ func (h *APIHandlers) GetStatus(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer h.recordMetrics(r, start, http.StatusOK)
 
-	stats := h.policyManager.GetStatistics()
+	stats, err := h.policyManager.GetStatistics()
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusInternalServerError)
+		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve statistics", err.Error())
+		return
+	}
 	stats.Uptime = time.Since(h.startTime)
 
 	h.writeJSONResponse(w, http.StatusOK, stats)
@@ -125,16 +132,16 @@ func (h *APIHandlers) GenerateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// In a real implementation, validate credentials against user store
-	// For demo purposes, accept hardcoded credentials
-	if req.Username != "admin" || req.Password != "password" {
+	// Authenticate user
+	user, err := h.authService.AuthenticateUser(req.Username, req.Password)
+	if err != nil {
 		h.recordMetrics(r, start, http.StatusUnauthorized)
 		h.writeErrorResponse(w, http.StatusUnauthorized, "Invalid credentials", "")
 		return
 	}
 
 	// Generate token
-	token, err := h.authService.GenerateToken("admin-id", req.Username, "admin@example.com", []string{"admin"})
+	token, err := h.authService.GenerateToken(user.UserID, user.Username, user.Email, user.Roles)
 	if err != nil {
 		h.recordMetrics(r, start, http.StatusInternalServerError)
 		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate token", err.Error())
@@ -189,7 +196,12 @@ func (h *APIHandlers) GetPolicyTypes(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer h.recordMetrics(r, start, http.StatusOK)
 
-	policyTypes := h.policyManager.GetAllPolicyTypes()
+	policyTypes, err := h.policyManager.GetAllPolicyTypes()
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusInternalServerError)
+		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve policy types", err.Error())
+		return
+	}
 	
 	// Extract just the IDs for the list response
 	typeIDs := make([]PolicyTypeID, len(policyTypes))
@@ -280,7 +292,12 @@ func (h *APIHandlers) GetPolicyInstances(w http.ResponseWriter, r *http.Request)
 	vars := mux.Vars(r)
 	policyTypeID := PolicyTypeID(vars["policy_type_id"])
 
-	policies := h.policyManager.GetPolicyInstancesByType(policyTypeID)
+	policies, err := h.policyManager.GetPolicyInstancesByType(policyTypeID)
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusInternalServerError)
+		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve policy instances", err.Error())
+		return
+	}
 	
 	// Extract just the IDs for the list response
 	policyIDs := make([]PolicyID, len(policies))
@@ -397,69 +414,161 @@ func (h *APIHandlers) GetPolicyStatus(w http.ResponseWriter, r *http.Request) {
 	h.writeJSONResponse(w, http.StatusOK, status)
 }
 
-// Enrichment Information handlers (placeholder implementations)
-
-func (h *APIHandlers) GetEITypes(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	defer h.recordMetrics(r, start, http.StatusOK)
-	h.writeJSONResponse(w, http.StatusOK, []string{})
-}
-
-func (h *APIHandlers) GetEIType(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	defer h.recordMetrics(r, start, http.StatusNotFound)
-	h.writeErrorResponse(w, http.StatusNotFound, "EI Type not found", "")
-}
-
-func (h *APIHandlers) GetEIJobs(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	defer h.recordMetrics(r, start, http.StatusOK)
-	h.writeJSONResponse(w, http.StatusOK, []string{})
-}
-
-func (h *APIHandlers) GetEIJob(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	defer h.recordMetrics(r, start, http.StatusNotFound)
-	h.writeErrorResponse(w, http.StatusNotFound, "EI Job not found", "")
-}
-
-func (h *APIHandlers) CreateEIJob(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	defer h.recordMetrics(r, start, http.StatusNotImplemented)
-	h.writeErrorResponse(w, http.StatusNotImplemented, "EI Jobs not implemented", "")
-}
-
-func (h *APIHandlers) DeleteEIJob(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	defer h.recordMetrics(r, start, http.StatusNotImplemented)
-	h.writeErrorResponse(w, http.StatusNotImplemented, "EI Jobs not implemented", "")
-}
-
-// ML Model handlers (placeholder implementations)
+// ML Model Management Handlers
 
 func (h *APIHandlers) GetMLModels(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer h.recordMetrics(r, start, http.StatusOK)
-	h.writeJSONResponse(w, http.StatusOK, []string{})
+
+	models, err := h.mlModelManager.GetMLModels()
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusInternalServerError)
+		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve ML models", err.Error())
+		return
+	}
+	h.writeJSONResponse(w, http.StatusOK, models)
 }
 
 func (h *APIHandlers) GetMLModel(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	defer h.recordMetrics(r, start, http.StatusNotFound)
-	h.writeErrorResponse(w, http.StatusNotFound, "ML Model not found", "")
+
+	vars := mux.Vars(r)
+	modelID := vars["model_id"]
+
+	model, err := h.mlModelManager.GetMLModel(modelID)
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusNotFound)
+		h.writeErrorResponse(w, http.StatusNotFound, "ML model not found", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, model)
 }
 
 func (h *APIHandlers) DeployMLModel(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	defer h.recordMetrics(r, start, http.StatusNotImplemented)
-	h.writeErrorResponse(w, http.StatusNotImplemented, "ML Models not implemented", "")
+
+	var req MLModelDeployRequest
+	if err := h.decodeJSONRequest(r, &req); err != nil {
+		h.recordMetrics(r, start, http.StatusBadRequest)
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	model, err := h.mlModelManager.DeployMLModel(&req)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if err.Error() == "ML model already exists" || err.Error() == "maximum number of ML models reached" {
+			statusCode = http.StatusConflict
+		}
+		h.recordMetrics(r, start, statusCode)
+		h.writeErrorResponse(w, statusCode, "Failed to deploy ML model", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusCreated)
+	h.writeJSONResponse(w, http.StatusCreated, model)
 }
 
 func (h *APIHandlers) DeleteMLModel(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	defer h.recordMetrics(r, start, http.StatusNotImplemented)
-	h.writeErrorResponse(w, http.StatusNotImplemented, "ML Models not implemented", "")
+
+	vars := mux.Vars(r)
+	modelID := vars["model_id"]
+
+	if err := h.mlModelManager.DeleteMLModel(modelID); err != nil {
+		statusCode := http.StatusInternalServerError
+		if err.Error() == "ML model not found" {
+			statusCode = http.StatusNotFound
+		}
+		h.recordMetrics(r, start, statusCode)
+		h.writeErrorResponse(w, statusCode, "Failed to delete ML model", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusNoContent)
+	w.WriteHeader(http.StatusNoContent)
 }
+
+// Enrichment Information Handlers
+
+func (h *APIHandlers) GetEnrichmentJobs(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer h.recordMetrics(r, start, http.StatusOK)
+
+	jobs, err := h.enrichmentManager.GetEnrichmentJobs()
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusInternalServerError)
+		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve enrichment jobs", err.Error())
+		return
+	}
+	h.writeJSONResponse(w, http.StatusOK, jobs)
+}
+
+func (h *APIHandlers) GetEnrichmentJob(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
+	vars := mux.Vars(r)
+	jobID := vars["job_id"]
+
+	job, err := h.enrichmentManager.GetEnrichmentJob(jobID)
+	if err != nil {
+		h.recordMetrics(r, start, http.StatusNotFound)
+		h.writeErrorResponse(w, http.StatusNotFound, "Enrichment job not found", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusOK)
+	h.writeJSONResponse(w, http.StatusOK, job)
+}
+
+func (h *APIHandlers) CreateEnrichmentJob(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
+	var req EIJobCreateRequest
+	if err := h.decodeJSONRequest(r, &req); err != nil {
+		h.recordMetrics(r, start, http.StatusBadRequest)
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	job, err := h.enrichmentManager.CreateEnrichmentJob(&req)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if err.Error() == "enrichment job already exists" {
+			statusCode = http.StatusConflict
+		}
+		h.recordMetrics(r, start, statusCode)
+		h.writeErrorResponse(w, statusCode, "Failed to create enrichment job", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusCreated)
+	h.writeJSONResponse(w, http.StatusCreated, job)
+}
+
+func (h *APIHandlers) DeleteEnrichmentJob(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
+	vars := mux.Vars(r)
+	jobID := vars["job_id"]
+
+	if err := h.enrichmentManager.DeleteEnrichmentJob(jobID); err != nil {
+		statusCode := http.StatusInternalServerError
+		if err.Error() == "enrichment job not found" {
+			statusCode = http.StatusNotFound
+		}
+		h.recordMetrics(r, start, statusCode)
+		h.writeErrorResponse(w, statusCode, "Failed to delete enrichment job", err.Error())
+		return
+	}
+
+	h.recordMetrics(r, start, http.StatusNoContent)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+
 
 // Helper methods
 

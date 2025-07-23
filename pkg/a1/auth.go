@@ -5,9 +5,11 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/hctsai1006/near-rt-ric/internal/config"
 	"github.com/sirupsen/logrus"
@@ -19,13 +21,23 @@ type AuthService struct {
 	logger     *logrus.Logger
 	privateKey *rsa.PrivateKey
 	publicKey  *rsa.PublicKey
-	
-	// Token management
-	tokenBlacklist map[string]time.Time
-	
+	redisClient *redis.Client
+
 	// RBAC configuration
 	roles       map[string]*Role
 	permissions map[string]*Permission
+
+	// Simulated user database
+	users map[string]*User
+}
+
+// User represents a user in the system
+type User struct {
+	UserID   string   `json:"user_id"`
+	Username string   `json:"username"`
+	Password string   `json:"-"`
+	Email    string   `json:"email"`
+	Roles    []string `json:"roles"`
 }
 
 // Role represents a user role with associated permissions
@@ -89,14 +101,18 @@ type RefreshTokenRequest struct {
 }
 
 // NewAuthService creates a new authentication service
-func NewAuthService(config *config.A1Config, logger *logrus.Logger) (*AuthService, error) {
+func NewAuthService(config *config.A1Config, logger *logrus.Logger, redisClient *redis.Client) (*AuthService, error) {
 	auth := &AuthService{
 		config:         config,
-		logger:         logger.WithField("component", "a1-auth"),
-		tokenBlacklist: make(map[string]time.Time),
+		logger:         logger,
+		redisClient:    redisClient,
 		roles:          make(map[string]*Role),
 		permissions:    make(map[string]*Permission),
+		users:          make(map[string]*User),
 	}
+
+	// Initialize simulated user database
+	auth.initializeUsers()
 
 	// Initialize RSA keys for JWT signing
 	if err := auth.loadRSAKeys(); err != nil {
@@ -110,24 +126,53 @@ func NewAuthService(config *config.A1Config, logger *logrus.Logger) (*AuthServic
 	return auth, nil
 }
 
-// loadRSAKeys loads or generates RSA keys for JWT signing
+// initializeUsers sets up the simulated user database
+func (a *AuthService) initializeUsers() {
+	a.users["admin"] = &User{
+		UserID:   "admin-id",
+		Username: "admin",
+		Password: "password",
+		Email:    "admin@example.com",
+		Roles:    []string{"admin"},
+	}
+	a.users["operator"] = &User{
+		UserID:   "operator-id",
+		Username: "operator",
+		Password: "password",
+		Email:    "operator@example.com",
+		Roles:    []string{"operator"},
+	}
+	a.users["viewer"] = &User{
+		UserID:   "viewer-id",
+		Username: "viewer",
+		Password: "password",
+		Email:    "viewer@example.com",
+		Roles:    []string{"viewer"},
+	}
+}
+
+// loadRSAKeys loads RSA keys for JWT signing from the configuration
 func (a *AuthService) loadRSAKeys() error {
-	// In production, these would be loaded from secure key management
-	// For now, generate keys or use configuration
-	
-	if a.config.Auth.PrivateKeyPath != "" {
-		// Load from file in production
-		a.logger.Info("Loading RSA keys from configuration")
-		// Implementation would load actual keys
+	if a.config.Auth.PrivateKeyPath == "" || a.config.Auth.PublicKeyPath == "" {
+		return fmt.Errorf("private or public key path not specified in config")
 	}
 
-	// For development, generate keys
-	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(testPrivateKey))
+	privateKeyBytes, err := os.ReadFile(a.config.Auth.PrivateKeyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read private key file: %w", err)
+	}
+
+	publicKeyBytes, err := os.ReadFile(a.config.Auth.PublicKeyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read public key file: %w", err)
+	}
+
+	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM(privateKeyBytes)
 	if err != nil {
 		return fmt.Errorf("failed to parse private key: %w", err)
 	}
 
-	publicKey, err := jwt.ParseRSAPublicKeyFromPEM([]byte(testPublicKey))
+	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(publicKeyBytes)
 	if err != nil {
 		return fmt.Errorf("failed to parse public key: %w", err)
 	}
@@ -135,6 +180,7 @@ func (a *AuthService) loadRSAKeys() error {
 	a.privateKey = privateKey
 	a.publicKey = publicKey
 
+	a.logger.Info("Successfully loaded RSA keys for JWT signing")
 	return nil
 }
 
@@ -197,10 +243,31 @@ func (a *AuthService) initializeDefaultRBAC() {
 	}).Info("Default RBAC configuration initialized")
 }
 
+// AuthenticateUser validates user credentials and returns the user details
+func (a *AuthService) AuthenticateUser(username, password string) (*AuthenticatedUser, error) {
+	// In a real implementation, this would query a database.
+	user, exists := a.users[username]
+	if !exists {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	// In a real implementation, use a secure password hashing algorithm like bcrypt.
+	if user.Password != password {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	return &AuthenticatedUser{
+		UserID:   user.UserID,
+		Username: user.Username,
+		Email:    user.Email,
+		Roles:    user.Roles,
+	}, nil
+}
+
 // GenerateToken generates a JWT token for an authenticated user
 func (a *AuthService) GenerateToken(userID, username, email string, roles []string) (*TokenResponse, error) {
 	now := time.Now()
-	expiresAt := now.Add(time.Duration(a.config.Auth.TokenExpiry) * time.Second)
+	expiresAt := now.Add(a.config.Auth.TokenExpiry)
 
 	// Resolve permissions from roles
 	permissions := a.resolvePermissions(roles)
@@ -252,8 +319,12 @@ func (a *AuthService) GenerateToken(userID, username, email string, roles []stri
 
 // ValidateToken validates a JWT token and returns user claims
 func (a *AuthService) ValidateToken(tokenString string) (*UserClaims, error) {
-	// Check if token is blacklisted
-	if _, blacklisted := a.tokenBlacklist[tokenString]; blacklisted {
+	// Check if token is blacklisted in Redis
+	isBlacklisted, err := a.redisClient.Exists(context.Background(), tokenString).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check token blacklist: %w", err)
+	}
+	if isBlacklisted > 0 {
 		return nil, fmt.Errorf("token is blacklisted")
 	}
 
@@ -292,21 +363,23 @@ func (a *AuthService) ValidateToken(tokenString string) (*UserClaims, error) {
 	return claims, nil
 }
 
-// RevokeToken adds a token to the blacklist
+// RevokeToken adds a token to the Redis blacklist
 func (a *AuthService) RevokeToken(tokenString string) error {
-	// Parse token to get expiration
 	claims, err := a.ValidateToken(tokenString)
 	if err != nil {
-		// Token might already be invalid, but still blacklist it
-		a.tokenBlacklist[tokenString] = time.Now().Add(24 * time.Hour)
+		// Even if the token is invalid, we can still add it to the blacklist
+		// to prevent it from being used in the future.
+		a.redisClient.Set(context.Background(), tokenString, "revoked", 24*time.Hour)
 		return nil
 	}
 
-	// Add to blacklist until expiration
-	if claims.ExpiresAt != nil {
-		a.tokenBlacklist[tokenString] = claims.ExpiresAt.Time
-	} else {
-		a.tokenBlacklist[tokenString] = time.Now().Add(24 * time.Hour)
+	// Add to blacklist with the remaining validity duration
+	remaining := time.Until(claims.ExpiresAt.Time)
+	if remaining > 0 {
+		err := a.redisClient.Set(context.Background(), tokenString, "revoked", remaining).Err()
+		if err != nil {
+			return fmt.Errorf("failed to add token to blacklist: %w", err)
+		}
 	}
 
 	a.logger.WithFields(logrus.Fields{
@@ -442,50 +515,5 @@ func GetUserFromContext(ctx context.Context) (*AuthenticatedUser, bool) {
 	return user, ok
 }
 
-// CleanupExpiredTokens removes expired tokens from blacklist
-func (a *AuthService) CleanupExpiredTokens() {
-	now := time.Now()
-	count := 0
-	
-	for token, expiry := range a.tokenBlacklist {
-		if now.After(expiry) {
-			delete(a.tokenBlacklist, token)
-			count++
-		}
-	}
-	
-	if count > 0 {
-		a.logger.WithField("cleaned_tokens", count).Debug("Cleaned up expired blacklisted tokens")
-	}
-}
 
-// Test RSA keys for development (in production, use proper key management)
-const testPrivateKey = `-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA2Z3QX0BTLS5LpW5Yez3Wz8eLZe4BtNrFw8OmEGPsRhvKp5n8
-BxzKoGwBmEY8S3K4w2mW5oFJH8F0vY9vN3C8H3+Qb6Q9D4I4j7U9I8L8W9O3P5R0
-Z8E5X3F2K8G4S1M9I5H6W2Q4L7F8R3G9E0J5H8P2Y4D6S1F9O8E3Q2K4W7L0R5G8
-P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8
-E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5
-G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9
-O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0
-wIDAQABAoIBAQCZ1VYF3q5N2mH8S3K4w2mW5oFJH8F0vY9vN3C8H3+Qb6Q9D4I4
-j7U9I8L8W9O3P5R0Z8E5X3F2K8G4S1M9I5H6W2Q4L7F8R3G9E0J5H8P2Y4D6S1F9
-O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0
-R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1
-F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7
-L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6
-S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4
-W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4
-D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2
------END RSA PRIVATE KEY-----`
 
-const testPublicKey = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2Z3QX0BTLS5LpW5Yez3W
-z8eLZe4BtNrFw8OmEGPsRhvKp5n8BxzKoGwBmEY8S3K4w2mW5oFJH8F0vY9vN3C8
-H3+Qb6Q9D4I4j7U9I8L8W9O3P5R0Z8E5X3F2K8G4S1M9I5H6W2Q4L7F8R3G9E0J5
-H8P2Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9
-O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0
-R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1
-F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7L0R5G8P3Y4D6S1F9O8E3Q2K4W7
-L0wIDAQAB
------END PUBLIC KEY-----`

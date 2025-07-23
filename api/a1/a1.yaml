@@ -1,311 +1,481 @@
 openapi: 3.0.0
 info:
-  title: O-RAN A1 Interface API
-  description: API for Policy Management, ML Model Management, and Enrichment Information services.
-  version: 2.0.0
+  title: O-RAN A1 Interface
+  version: 1.0.0
+  description: O-RAN A1 Interface for Near-RT RIC
 servers:
-  - url: http://localhost:10020
-    description: Local A1 Interface Server
-
+  - url: /a1-p/v2
+  - url: /a1-ml/v1
+  - url: /a1-ei/v1
 paths:
-  /a1-p/v2/policies:
+  /policytypes:
     get:
-      summary: Get all policies
-      operationId: getAllPolicies
+      summary: Get all policy types
+      security:
+        - bearerAuth: []
       responses:
         '200':
-          description: A list of policies
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Policy'
-    post:
-      summary: Create a new policy
-      operationId: createPolicy
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Policy'
+          description: A list of policy types
+  /policytypes/{policy_type_id}:
+    get:
+      summary: Get a specific policy type
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: policy_type_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A single policy type
+    put:
+      summary: Create a new policy type
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: policy_type_id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '201':
-          description: Policy created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Policy'
-        '400':
-          description: Invalid policy data
-  /a1-p/v2/policies/{id}:
-    get:
-      summary: Get a policy by ID
-      operationId: getPolicyById
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Policy details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Policy'
-        '404':
-          description: Policy not found
-    put:
-      summary: Update a policy by ID
-      operationId: updatePolicyById
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Policy'
-      responses:
-        '200':
-          description: Policy updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Policy'
-        '400':
-          description: Invalid policy data
-        '404':
-          description: Policy not found
+          description: Policy type created
     delete:
-      summary: Delete a policy by ID
-      operationId: deletePolicyById
+      summary: Delete a policy type
+      security:
+        - bearerAuth: []
       parameters:
-        - name: id
+        - name: policy_type_id
           in: path
           required: true
           schema:
             type: string
       responses:
         '204':
-          description: Policy deleted successfully
-        '404':
-          description: Policy not found
-  /a1-p/v2/policytypes:
+          description: Policy type deleted
+  /policytypes/{policy_type_id}/policies:
     get:
-      summary: Get all policy types
-      operationId: getPolicyTypes
+      summary: Get all policy instances for a policy type
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: policy_type_id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '200':
-          description: A list of policy types
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: string
-  /a1-ml/v1/models:
+          description: A list of policy instances
+  /policytypes/{policy_type_id}/policies/{policy_id}:
+    get:
+      summary: Get a specific policy instance
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: policy_type_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: policy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A single policy instance
+    put:
+      summary: Create a new policy instance
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: policy_type_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: policy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Policy instance created
+    delete:
+      summary: Delete a policy instance
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: policy_type_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: policy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Policy instance deleted
+  /ml/models:
     get:
       summary: Get all ML models
-      operationId: getAllMLModels
+      security:
+        - bearerAuth: []
       responses:
         '200':
           description: A list of ML models
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/MLModel'
-    post:
+  /ml/models/{model_id}:
+    get:
+      summary: Get a specific ML model
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: model_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A single ML model
+    put:
       summary: Deploy a new ML model
-      operationId: deployMLModel
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MLModel'
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: model_id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '201':
-          description: ML Model deployed successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MLModel'
-        '400':
-          description: Invalid ML model data
-  /a1-ml/v1/models/{id}:
-    get:
-      summary: Get an ML model by ID
-      operationId: getMLModelById
+          description: ML model deployed
+    delete:
+      summary: Delete an ML model
+      security:
+        - bearerAuth: []
       parameters:
-        - name: id
+        - name: model_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: ML model deleted
+  /ei/jobs:
+    get:
+      summary: Get all enrichment jobs
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of enrichment jobs
+  /ei/jobs/{job_id}:
+    get:
+      summary: Get a specific enrichment job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
           in: path
           required: true
           schema:
             type: string
       responses:
         '200':
-          description: ML Model details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MLModel'
-        '404':
-          description: ML Model not found
-  /a1-ml/v1/models/{id}/rollback:
-    post:
-      summary: Rollback an ML model by ID
-      operationId: rollbackMLModel
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: ML Model rolled back successfully
-        '404':
-          description: ML Model not found
-  /a1-ei/v1/info:
-    get:
-      summary: Get all enrichment information
-      operationId: getAllEnrichmentInfo
-      responses:
-        '200':
-          description: A list of enrichment information
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/EnrichmentInfo'
+          description: A single enrichment job
     put:
-      summary: Update enrichment information
-      operationId: updateEnrichmentInfo
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EnrichmentInfo'
-      responses:
-        '200':
-          description: Enrichment information updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrichmentInfo'
-        '400':
-          description: Invalid enrichment information data
-  /a1-ei/v1/info/{id}:
-    get:
-      summary: Get enrichment information by ID
-      operationId: getEnrichmentInfoById
+      summary: Create a new enrichment job
+      security:
+        - bearerAuth: []
       parameters:
-        - name: id
+        - name: job_id
           in: path
           required: true
           schema:
             type: string
       responses:
-        '200':
-          description: Enrichment information details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrichmentInfo'
-        '404':
-          description: Enrichment information not found
-
+        '201':
+          description: Enrichment job created
+    delete:
+      summary: Delete an enrichment job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Enrichment job deleted
 components:
   schemas:
-    Policy:
+    PolicyType:
       type: object
       properties:
-        id:
+        policy_type_id:
           type: string
-          readOnly: true
         name:
           type: string
-        version:
+        description:
           type: string
-        content:
-          type: string
-          format: byte
-        status:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-          readOnly: true
-        updatedAt:
+        policy_schema:
+          type: object
+        create_schema:
+          type: object
+        created_at:
           type: string
           format: date-time
-          readOnly: true
-      required:
-        - name
-        - version
-        - content
-    MLModel:
+        updated_at:
+          type: string
+          format: date-time
+    PolicyInstance:
       type: object
       properties:
-        id:
+        policy_id:
           type: string
-          readOnly: true
-        name:
+        policy_type_id:
           type: string
-        version:
+        policy_data:
+          type: object
+        status:
           type: string
-        filePath:
+        status_reason:
+          type: string
+        target_near_rt_ric:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        enforced_at:
+          type: string
+          format: date-time
+    PolicyStatusInfo:
+      type: object
+      properties:
+        policy_id:
+          type: string
+        policy_type_id:
           type: string
         status:
           type: string
-        createdAt:
+        status_reason:
+          type: string
+        last_update:
           type: string
           format: date-time
-          readOnly: true
-        updatedAt:
-          type: string
-          format: date-time
-          readOnly: true
-      required:
-        - name
-        - version
-        - filePath
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+        enforcement_info:
+          type: object
     EnrichmentInfo:
       type: object
       properties:
-        id:
+        ei_job_id:
           type: string
-          readOnly: true
-        name:
+        ei_type_id:
           type: string
-        source:
+        job_owner:
           type: string
-        content:
+        job_data:
+          type: object
+        target_uri:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+    MLModel:
+      type: object
+      properties:
+        model_id:
+          type: string
+        model_name:
+          type: string
+        model_version:
+          type: string
+        model_type:
+          type: string
+        description:
+          type: string
+        model_data:
           type: string
           format: byte
+        model_url:
+          type: string
+        metadata:
+          type: object
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deployed_at:
+          type: string
+          format: date-time
+    A1ErrorResponse:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+    TokenRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        client_id:
+          type: string
+        scope:
+          type: string
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+          format: int64
+        refresh_token:
+          type: string
+        scope:
+          type: string
+    RefreshTokenRequest:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+    PolicyTypeCreateRequest:
+      type: object
+      properties:
+        policy_type_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        policy_schema:
+          type: object
+        create_schema:
+          type: object
+    PolicyInstanceCreateRequest:
+      type: object
+      properties:
+        policy_data:
+          type: object
+        target_near_rt_ric:
+          type: string
+    EIJobCreateRequest:
+      type: object
+      properties:
+        ei_type_id:
+          type: string
+        job_owner:
+          type: string
+        job_data:
+          type: object
+        target_uri:
+          type: string
+    MLModelDeployRequest:
+      type: object
+      properties:
+        model_name:
+          type: string
+        model_version:
+          type: string
+        model_type:
+          type: string
+        description:
+          type: string
+        model_data:
+          type: string
+          format: byte
+        model_url:
+          type: string
+        metadata:
+          type: object
+        deploy_target:
+          type: string
+    A1HealthCheck:
+      type: object
+      properties:
+        status:
+          type: string
         timestamp:
           type: string
           format: date-time
-          readOnly: true
-        ttl:
+        version:
+          type: string
+        components:
+          type: object
+          additionalProperties:
+            type: string
+        uptime:
+          type: string
+    A1Statistics:
+      type: object
+      properties:
+        total_policy_types:
+          type: integer
+        total_policy_instances:
+          type: integer
+        enforced_policies:
+          type: integer
+        failed_policies:
+          type: integer
+        total_requests:
           type: integer
           format: int64
-      required:
-        - name
-        - source
-        - content
+        successful_requests:
+          type: integer
+          format: int64
+        failed_requests:
+          type: integer
+          format: int64
+        average_response_time:
+          type: string
+        uptime:
+          type: string
+        last_update:
+          type: string
+          format: date-time
   securitySchemes:
     bearerAuth:
       type: http

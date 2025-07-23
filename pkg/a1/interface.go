@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
 	"github.com/hctsai1006/near-rt-ric/internal/config"
 	"github.com/hctsai1006/near-rt-ric/pkg/common/monitoring"
@@ -21,11 +22,14 @@ type A1Interface struct {
 	metrics *monitoring.MetricsCollector
 
 	// Core components
-	policyManager *PolicyManager
-	authService   *AuthService
-	apiHandlers   *APIHandlers
-	httpServer    *http.Server
-	router        *mux.Router
+	policyManager     *PolicyManager
+	mlModelManager    *MLModelManager
+	enrichmentManager *EnrichmentManager
+	authService       *AuthService
+	database          *Database
+	httpServer        *http.Server
+	router            *mux.Router
+	redisClient       *redis.Client
 
 	// Control and synchronization
 	ctx     context.Context
@@ -53,30 +57,50 @@ type A1InterfaceEventHandler interface {
 }
 
 // NewA1Interface creates a new A1 interface instance
-func NewA1Interface(cfg *config.A1Config, logger *logrus.Logger, metrics *monitoring.MetricsCollector) (*A1Interface, error) {
+func NewA1Interface(cfg *config.A1Config, logger *logrus.Logger, metrics *monitoring.MetricsCollector, redisClient *redis.Client, dbConfig *config.DatabaseConfig) (*A1Interface, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	a1 := &A1Interface{
-		config:  cfg,
-		logger:  logger.WithField("component", "a1-interface"),
-		metrics: metrics,
-		ctx:     ctx,
-		cancel:  cancel,
+		config:      cfg,
+		logger:      logger.WithField("component", "a1-interface"),
+		metrics:     metrics,
+		redisClient: redisClient,
+		ctx:         ctx,
+		cancel:      cancel,
+	}
+
+	// Initialize database
+	var err error
+	a1.database, err = NewDatabase(dbConfig, logger)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to create database: %w", err)
+	}
+
+	// Run database migrations
+	if err := a1.database.Migrate(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to run database migrations: %w", err)
 	}
 
 	// Initialize authentication service
-	var err error
-	a1.authService, err = NewAuthService(cfg, logger)
+	a1.authService, err = NewAuthService(cfg, logger, redisClient)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
 
 	// Initialize policy manager
-	a1.policyManager = NewPolicyManager(cfg, logger, metrics)
+	a1.policyManager = NewPolicyManager(cfg, logger, metrics, a1.database.db)
+
+	// Initialize ML model manager
+	a1.mlModelManager = NewMLModelManager(cfg, logger, a1.database.db)
+
+	// Initialize enrichment manager
+	a1.enrichmentManager = NewEnrichmentManager(cfg, logger, a1.database.db)
 
 	// Initialize API handlers
-	a1.apiHandlers = NewAPIHandlers(a1.policyManager, a1.authService, logger, metrics)
+	a1.apiHandlers = NewAPIHandlers(a1.policyManager, a1.mlModelManager, a1.enrichmentManager, a1.authService, logger, metrics)
 
 	// Set up event handlers
 	a1.policyManager.AddEventHandler(a1)
@@ -360,6 +384,11 @@ func (a1 *A1Interface) IsRunning() bool {
 	a1.mutex.RLock()
 	defer a1.mutex.RUnlock()
 	return a1.running
+}
+
+// Database returns the database instance
+func (a1 *A1Interface) Database() *Database {
+	return a1.database
 }
 
 // AddEventHandler adds an event handler

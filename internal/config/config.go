@@ -248,9 +248,14 @@ type ServiceModelConfig struct {
 
 // AuthConfig contains authentication configuration
 type AuthConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
-	Type     string `mapstructure:"type"`
-	Provider string `mapstructure:"provider"`
+	Enabled        bool          `mapstructure:"enabled"`
+	Type           string        `mapstructure:"type"`
+	Provider       string        `mapstructure:"provider"`
+	PrivateKeyPath string        `mapstructure:"private_key_path"`
+	PublicKeyPath  string        `mapstructure:"public_key_path"`
+	TokenExpiry    time.Duration `mapstructure:"token_expiry"`
+	Issuer         string        `mapstructure:"issuer"`
+	Audience       string        `mapstructure:"audience"`
 	
 	// OAuth2/OIDC settings
 	OAuth2 OAuth2Config `mapstructure:"oauth2"`
@@ -281,6 +286,7 @@ type PolicyEngineConfig struct {
 	CacheSize     int           `mapstructure:"cache_size"`
 	CacheTTL      time.Duration `mapstructure:"cache_ttl"`
 	MaxPolicies   int           `mapstructure:"max_policies"`
+	MaxPolicyTypes int          `mapstructure:"max_policy_types"`
 }
 
 type MLModelConfig struct {
